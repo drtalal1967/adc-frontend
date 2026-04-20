@@ -1,5 +1,5 @@
 "scripts": {
   "dev": "vite",
-  "build": "npx vite build",
+  "build": "npx --yes vite build",
   "preview": "vite preview"
 }
