@@ -122,10 +122,14 @@ const toMinutes = (time = '') => {
 
 const isDoctorShift = (shift, employees = []) => {
   const employee = shift.employee || employees.find(e => String(e.id) === String(shift.employeeId));
+  const role = String(employee?.user?.role || employee?.role || '').toUpperCase();
+  if (role === 'DENTIST') return true;
+
   const fields = [
     employee?.jobTitle,
     employee?.specialization,
     employee?.user?.role,
+    employee?.role,
     shift.employeeName,
   ].filter(Boolean).map(value => String(value).toLowerCase().trim());
 
