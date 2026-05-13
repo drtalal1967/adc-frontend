@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
 import API from '../api';
+import { useAuth } from '../context/AuthContext';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
@@ -17,6 +18,11 @@ import {
   Trash2
 } from 'lucide-react';
 
+const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
+
 const KPICard = ({ title, value, icon: Icon, borderColor }) => (
   <div className={`bg-white p-6 rounded-2xl shadow-sm border border-gray-100 ${borderColor} border-l-[6px] flex items-center gap-4`}>
     <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-800">
@@ -30,6 +36,10 @@ const KPICard = ({ title, value, icon: Icon, borderColor }) => (
 );
 
 export default function FinancialAnalytics() {
+  const { checkPermission } = useAuth();
+  const canCreate = checkPermission('financials', 'create');
+  const canDelete = checkPermission('financials', 'delete');
+  const canExport = checkPermission('financials', 'export');
   const [activeTab, setActiveTab] = useState('Overview');
   const [selectedBranch, setSelectedBranch] = useState('all');
   const [showCustomReport, setShowCustomReport] = useState(false);
@@ -124,9 +134,9 @@ export default function FinancialAnalytics() {
       x = startX + 2;
       [
         row.month,
-        (row.revenue || 0).toLocaleString(),
-        (row.costs || 0).toLocaleString(),
-        (row.profit || 0).toLocaleString(),
+        formatBHD(row.revenue),
+        formatBHD(row.costs),
+        formatBHD(row.profit),
         `${row.margin}%`
       ].forEach((val, i) => { doc.text(String(val), x, y); x += colWidths[i]; });
       y += 7;
@@ -162,9 +172,9 @@ export default function FinancialAnalytics() {
     doc.text('Performance Summary', 14, 66);
 
     const summaryRows = [
-      ['Total Revenue (YTD)', `BHD ${totalRevenue.toLocaleString()}`],
-      ['Total Costs (YTD)', `BHD ${totalCosts.toLocaleString()}`],
-      ['Net Profit (YTD)', `BHD ${totalProfit.toLocaleString()}`],
+      ['Total Revenue (YTD)', `BHD ${formatBHD(totalRevenue)}`],
+      ['Total Costs (YTD)', `BHD ${formatBHD(totalCosts)}`],
+      ['Net Profit (YTD)', `BHD ${formatBHD(totalProfit)}`],
       ['Profit Margin', `${latest.margin}%`],
     ];
 
@@ -204,9 +214,9 @@ export default function FinancialAnalytics() {
       x = startX + 2;
       [
         row.month,
-        (row.revenue || 0).toLocaleString(),
-        (row.costs || 0).toLocaleString(),
-        (row.profit || 0).toLocaleString(),
+        formatBHD(row.revenue),
+        formatBHD(row.costs),
+        formatBHD(row.profit),
         `${row.margin}%`
       ].forEach((val, i) => { doc.text(String(val), x, y); x += colWidths[i]; });
       y += 7;
@@ -226,7 +236,7 @@ export default function FinancialAnalytics() {
   });
   const [loading, setLoading] = useState(true);
 
-  const COLORS = ['#1E3A8A', '#F97316', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+  const COLORS = ['#1E3A8A', '#F97316', '#2C4697', '#F58220', '#8B5CF6', '#EC4899'];
 
   useEffect(() => {
     fetchAnalytics();
@@ -284,7 +294,7 @@ export default function FinancialAnalytics() {
   return (
     <div className="space-y-6 animate-fade-in pb-10">
       {/* Custom Report Modal */}
-      {showCustomReport && (
+      {showCustomReport && canExport && (
         <div className="modal-overlay z-[100]" onClick={() => setShowCustomReport(false)}>
           <div className="modal-content max-w-md bg-white rounded-[2rem] shadow-2xl animate-scale-in p-0 overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="bg-blue-900 px-8 py-6 flex items-center justify-between text-white">
@@ -325,9 +335,9 @@ export default function FinancialAnalytics() {
               </div>
               <button
                 onClick={generateCustomReport}
-                className="w-full bg-blue-900 hover:bg-blue-950 text-white py-4 rounded-2xl font-black text-sm transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                className="w-full btn-export-pdf py-4 rounded-2xl font-black text-sm transition-all shadow-lg shadow-rose-200 active:scale-[0.98] flex items-center justify-center gap-2"
               >
-                <Download size={16} /> Generate & Download PDF
+                <FileText size={16} /> Generate & Download PDF
               </button>
             </div>
           </div>
@@ -357,9 +367,11 @@ export default function FinancialAnalytics() {
             </select>
             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           </div>
-          <button onClick={handleCustomReport} className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2.5 rounded-xl shadow-lg shadow-orange-200 font-bold text-sm transition-all active:scale-95 leading-none">
-            Custom Report
-          </button>
+          {canExport && (
+            <button onClick={handleCustomReport} className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2.5 rounded-xl shadow-lg shadow-orange-200 font-bold text-sm transition-all active:scale-95 leading-none">
+              Custom Report
+            </button>
+          )}
         </div>
       </div>
 
@@ -380,16 +392,18 @@ export default function FinancialAnalytics() {
             </button>
           ))}
         </div>
-        <button onClick={handleExportPDF} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all">
-          <FileText size={16} /> Export PDF
-        </button>
+        {canExport && (
+          <button onClick={handleExportPDF} className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold btn-export-pdf shadow-md transition-all">
+            <FileText size={16} /> Export PDF
+          </button>
+        )}
       </div>
 
       {/* KPI Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard title="Total Revenue (YTD)" value={`BHD ${ytdRevenue.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}`} icon={DollarSign} borderColor="border-blue-900" />
-        <KPICard title="Total Costs (YTD)" value={`BHD ${ytdCosts.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}`} icon={TrendingUp} borderColor="border-orange-500" />
-        <KPICard title="Net Profit (YTD)" value={`BHD ${ytdProfit.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}`} icon={TrendingUp} borderColor="border-emerald-500" />
+        <KPICard title="Total Revenue (YTD)" value={`BHD ${formatBHD(ytdRevenue)}`} icon={DollarSign} borderColor="border-blue-900" />
+        <KPICard title="Total Costs (YTD)" value={`BHD ${formatBHD(ytdCosts)}`} icon={TrendingUp} borderColor="border-orange-500" />
+        <KPICard title="Net Profit (YTD)" value={`BHD ${formatBHD(ytdProfit)}`} icon={TrendingUp} borderColor="border-emerald-500" />
         <KPICard title="Profit Margin (YTD)" value={`${ytdMargin}%`} icon={Activity} borderColor="border-amber-400" />
       </div>
 
@@ -423,7 +437,7 @@ export default function FinancialAnalytics() {
                     <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 700, fill: '#9CA3AF' }} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 700, fill: '#9CA3AF' }} tickFormatter={v => `BHD ${v/1000}K`} />
                     <Tooltip contentStyle={{ borderRadius: 16, border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                    <Line type="monotone" dataKey="profit" name="Net Profit" stroke="#10B981" strokeWidth={4} dot={{ r: 6, fill: '#10B981', strokeWidth: 3, stroke: '#fff' }} activeDot={{ r: 8 }} />
+                    <Line type="monotone" dataKey="profit" name="Net Profit" stroke="#2C4697" strokeWidth={4} dot={{ r: 6, fill: '#2C4697', strokeWidth: 3, stroke: '#fff' }} activeDot={{ r: 8 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -607,12 +621,14 @@ export default function FinancialAnalytics() {
                 </div>
               </div>
             </div>
-            <button 
-              onClick={handleSaveRevenue}
-              className="w-full bg-blue-900 hover:bg-blue-950 text-white py-4 rounded-xl font-black text-sm transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98]"
-            >
-              Save Revenue
-            </button>
+            {canCreate && (
+              <button 
+                onClick={handleSaveRevenue}
+                className="w-full bg-blue-900 hover:bg-blue-950 text-white py-4 rounded-xl font-black text-sm transition-all shadow-lg shadow-blue-900/20 active:scale-[0.98]"
+              >
+                Save Revenue
+              </button>
+            )}
           </div>
         </div>
 
@@ -674,12 +690,14 @@ export default function FinancialAnalytics() {
                 </div>
               </div>
             </div>
-            <button 
-              onClick={handleSaveSalaries}
-              className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-black text-sm transition-all shadow-lg shadow-orange-500/20 active:scale-[0.98]"
-            >
-              Save Salaries
-            </button>
+            {canCreate && (
+              <button 
+                onClick={handleSaveSalaries}
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white py-4 rounded-xl font-black text-sm transition-all shadow-lg shadow-orange-500/20 active:scale-[0.98]"
+              >
+                Save Salaries
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -726,17 +744,19 @@ export default function FinancialAnalytics() {
                   </td>
                   <td className="px-8 py-4 text-right">
                     <span className={`text-sm font-black ${rec.type === 'REVENUE' ? 'text-blue-900' : 'text-orange-600'}`}>
-                      BHD {parseFloat(rec.amount).toLocaleString()}
+                      BHD {formatBHD(rec.amount)}
                     </span>
                   </td>
                   <td className="px-8 py-4 text-center">
-                    <button 
-                      onClick={() => handleDeleteRecord(rec.id)}
-                      className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
-                      title="Delete Entry"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {canDelete && (
+                      <button 
+                        onClick={() => handleDeleteRecord(rec.id)}
+                        className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                        title="Delete Entry"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               )) : (

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import API, { BACKEND_URL } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Search, Plus, Eye, Trash2, Calendar, CreditCard, ChevronRight, ChevronDown, X, FileText, CheckCircle2, FlaskConical, Download, TrendingUp, Hash, Activity, Store } from 'lucide-react';
+import { Search, Plus, Eye, Trash2, Calendar, CreditCard, ChevronRight, ChevronDown, X, FileText, CheckCircle2, FlaskConical, Download, FileSpreadsheet, TrendingUp, Hash, Activity, Store } from 'lucide-react';
 import { format } from 'date-fns';
 import FileUpload from '../components/FileUpload';
 import FilePreviewModal from '../components/FilePreviewModal';
@@ -9,10 +9,30 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
+
+const PayeeLogo = ({ payment, size = 'sm' }) => {
+  const logoUrl = payment.itemLogoUrl || payment.originalData?.labCase?.laboratory?.logoUrl || payment.originalData?.expense?.vendor?.logoUrl;
+  const Icon = payment.type === 'LAB' ? FlaskConical : Store;
+  const sizeClass = size === 'xs' ? 'w-8 h-8 rounded-lg' : 'w-9 h-9 rounded-xl';
+  return (
+    <div className={`${sizeClass} bg-white border border-blue-100 flex items-center justify-center overflow-hidden text-blue-900 shadow-sm shrink-0`}>
+      {logoUrl ? (
+        <img src={logoUrl} alt={`${payment.itemName || 'Payee'} logo`} className="w-full h-full object-contain p-1" />
+      ) : (
+        <Icon size={size === 'xs' ? 14 : 16} />
+      )}
+    </div>
+  );
+};
+
 function StatusBadge({ status }) {
   const isPaid = status === 'Paid' || status === 'Completed';
   return (
-    <span className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-tight ${
+    <span className={`px-3 py-1 rounded-full text-[10px] font-normal tracking-tight ${
       isPaid ? 'bg-blue-900 text-white' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
     }`}>
       {status}
@@ -129,7 +149,7 @@ function AddPaymentModal({ onClose, onSave, labs, labCases }) {
                 required
                 value={form.totalAmount}
                 onChange={e => setForm({ ...form, totalAmount: e.target.value })}
-                placeholder="0.00"
+                placeholder="0.000"
                 className="input w-full bg-gray-50 border-gray-100"
               />
             </div>
@@ -211,10 +231,16 @@ function AddPaymentModal({ onClose, onSave, labs, labCases }) {
 
 
 
-function ViewPaymentModal({ payment, onClose }) {
+function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
   if (!payment) return null;
 
   const isPaid = payment.status === 'Paid' || payment.status === 'Completed';
+  const relatedPayments = allPayments.filter(p => {
+    if (payment.referenceNumber && p.referenceNumber === payment.referenceNumber) return true;
+    return p.id === payment.id;
+  });
+  const relatedTotal = relatedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const isBatch = relatedPayments.length > 1;
 
   return (
     <div className="modal-overlay z-[100]" onClick={onClose}>
@@ -249,7 +275,7 @@ function ViewPaymentModal({ payment, onClose }) {
             </div>
             <div className="text-center sm:text-right">
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Amount</p>
-              <p className="text-3xl font-black text-blue-900 tracking-tight">BHD {Number(payment.amount).toFixed(2)}</p>
+              <p className="text-3xl font-black text-blue-900 tracking-tight">BHD {formatBHD(relatedTotal || payment.amount)}</p>
             </div>
           </div>
 
@@ -283,6 +309,13 @@ function ViewPaymentModal({ payment, onClose }) {
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50/50">
                   <div className="flex items-center gap-3 text-gray-500">
+                    <Hash size={14} />
+                    <span className="text-xs font-bold">Batch Reference</span>
+                  </div>
+                  <span className="text-xs font-black text-gray-900">{payment.referenceNumber || 'Single Payment'}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50/50">
+                  <div className="flex items-center gap-3 text-gray-500">
                     <Activity size={14} />
                     <span className="text-xs font-bold">Payment Status</span>
                   </div>
@@ -302,9 +335,9 @@ function ViewPaymentModal({ payment, onClose }) {
                       <p className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-2">Linked Cases</p>
                       <div className="flex items-center gap-2">
                          <div className="w-8 h-8 rounded-lg bg-blue-900 text-white flex items-center justify-center font-black text-sm italic">
-                            {payment.caseCount}
+                            {relatedPayments.length}
                          </div>
-                         <p className="text-xs font-bold text-gray-700">This payment covers {payment.caseCount} lab reports</p>
+                         <p className="text-xs font-bold text-gray-700">This payment covers {relatedPayments.length} lab case{relatedPayments.length === 1 ? '' : 's'}</p>
                       </div>
                     </div>
                   )}
@@ -315,6 +348,42 @@ function ViewPaymentModal({ payment, onClose }) {
                     </p>
                   </div>
                </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-l-4 border-blue-900 pl-3">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                Records Paid {isBatch ? `(${relatedPayments.length})` : ''}
+              </h3>
+            </div>
+            <div className="grid gap-3">
+              {relatedPayments.map((record) => {
+                const isLab = record.type?.toLowerCase() === 'lab';
+                const linked = isLab ? record.originalData?.labCase : record.originalData?.expense;
+                const title = isLab
+                  ? linked?.patientName || record.itemName || 'Lab Case'
+                  : linked?.title || linked?.invoiceNumber || record.itemName || 'Expense';
+                const subtitle = isLab
+                  ? [linked?.caseNumber, linked?.patientNumber, linked?.prosthesisType].filter(Boolean).join(' • ')
+                  : [linked?.invoiceNumber, linked?.category, linked?.branch].filter(Boolean).join(' • ');
+
+                return (
+                  <div key={record.id} className="p-4 rounded-[1.5rem] border border-blue-100 bg-blue-50/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <PayeeLogo payment={record} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-gray-900 truncate">{title}</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider truncate">{subtitle || record.itemName}</p>
+                      </div>
+                    </div>
+                    <div className="text-left sm:text-right">
+                      <p className="text-sm font-black text-blue-900">BHD {formatBHD(record.amount)}</p>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase">{isLab ? 'Lab Case' : 'Expense'}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -371,9 +440,10 @@ function ViewPaymentModal({ payment, onClose }) {
 }
 
 export default function LabPayments() {
-  const { user } = useAuth();
+  const { checkPermission } = useAuth();
   const [payments, setPayments] = useState([]);
   const [labs, setLabs] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [labCases, setLabCases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -381,6 +451,10 @@ export default function LabPayments() {
   const [selectedType, setSelectedType] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedMethod, setSelectedMethod] = useState('All');
+  const [selectedLab, setSelectedLab] = useState('All');
+  const [selectedVendor, setSelectedVendor] = useState('All');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [viewingPayment, setViewingPayment] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
@@ -403,6 +477,7 @@ export default function LabPayments() {
       // Use individual try-catch to ensure one failure doesn't block others
       let payRes = { data: [] };
       let labRes = { data: [] };
+      let vendorRes = { data: [] };
       let caseRes = { data: [] };
 
       try {
@@ -418,6 +493,12 @@ export default function LabPayments() {
       }
 
       try {
+        vendorRes = await API.get('/vendors');
+      } catch (err) {
+        console.warn('Fetch Vendors Error (ignoring):', err.message);
+      }
+
+      try {
         caseRes = await API.get('/lab-cases');
       } catch (err) {
         console.warn('Fetch LabCases Error (ignoring):', err.message);
@@ -426,9 +507,35 @@ export default function LabPayments() {
       console.log('Payments loaded:', payRes.data?.length);
       setPayments(payRes.data || []);
       setLabs(labRes.data || []);
+      setVendors(vendorRes.data || []);
       setLabCases(caseRes.data || []);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getPaymentLabId = (payment) => payment.originalData?.labCase?.laboratoryId || payment.originalData?.labCase?.laboratory?.id || payment.labId || payment.laboratoryId;
+  const getPaymentVendorId = (payment) => payment.originalData?.expense?.vendorId || payment.originalData?.expense?.vendor?.id || payment.vendorId;
+
+  const handleTypeChange = (value) => {
+    setSelectedType(value);
+    if (value.toLowerCase() === 'lab') setSelectedVendor('All');
+    if (value.toLowerCase() === 'expense') setSelectedLab('All');
+  };
+
+  const handleLabChange = (value) => {
+    setSelectedLab(value);
+    if (value !== 'All') {
+      setSelectedVendor('All');
+      setSelectedType('lab');
+    }
+  };
+
+  const handleVendorChange = (value) => {
+    setSelectedVendor(value);
+    if (value !== 'All') {
+      setSelectedLab('All');
+      setSelectedType('expense');
     }
   };
 
@@ -457,10 +564,20 @@ export default function LabPayments() {
         return pm === sm;
       })();
       const matchesBranch = selectedBranch === 'all' || (p.branch || '').toLowerCase().includes(selectedBranch);
+      const matchesLab = selectedLab === 'All' || String(getPaymentLabId(p) || '') === selectedLab;
+      const matchesVendor = selectedVendor === 'All' || String(getPaymentVendorId(p) || '') === selectedVendor;
+      const paymentDate = p.date || p.paymentDate || p.originalData?.paymentDate || '';
+      const matchesDateFrom = !dateFrom || paymentDate >= dateFrom;
+      const matchesDateTo = !dateTo || paymentDate <= dateTo;
       
-      return matchesSearch && matchesType && matchesStatus && matchesMethod && matchesBranch;
+      return matchesSearch && matchesType && matchesStatus && matchesMethod && matchesBranch && matchesLab && matchesVendor && matchesDateFrom && matchesDateTo;
     });
-  }, [payments, search, selectedType, selectedStatus, selectedMethod, selectedBranch]);
+  }, [payments, search, selectedType, selectedStatus, selectedMethod, selectedBranch, selectedLab, selectedVendor, dateFrom, dateTo]);
+
+  const filteredTotal = useMemo(() => {
+    return filtered.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  }, [filtered]);
+
   const exportToExcel = () => {
     try {
       if (filtered.length === 0) {
@@ -472,8 +589,8 @@ export default function LabPayments() {
         'ID': p.id,
         'Date': p.date,
         'Type': (p.type || '').toUpperCase(),
-        'Reference': p.itemName,
-        'Amount (BHD)': p.amount,
+        'Payee': p.itemName,
+        'Amount (BHD)': formatBHD(p.amount),
         'Method': p.method,
         'Status': p.status
       }));
@@ -508,13 +625,13 @@ export default function LabPayments() {
         p.date,
         (p.type || '').toUpperCase(),
         p.itemName,
-        `BHD ${p.amount}`,
+        `BHD ${formatBHD(p.amount)}`,
         p.method,
         'Paid'
       ]);
 
       autoTable(doc, {
-        head: [['ID', 'Date', 'Type', 'Reference', 'Amount', 'Method', 'Status']],
+        head: [['ID', 'Date', 'Type', 'Payee', 'Amount', 'Method', 'Status']],
         body: tableData,
         startY: 35,
         theme: 'grid',
@@ -529,7 +646,8 @@ export default function LabPayments() {
   };
 
 
-  const canCreate = ['admin', 'manager', 'accountant'].includes(user?.role);
+  const canCreate = checkPermission('payments', 'create');
+  const canDelete = checkPermission('payments', 'delete');
 
   const handleSavePayment = (newPayment) => {
     setPayments(prev => [newPayment, ...prev]);
@@ -554,7 +672,7 @@ export default function LabPayments() {
   return (
     <div className="space-y-5 animate-fade-in">
       {showAddModal && <AddPaymentModal labs={labs} labCases={labCases} onClose={() => setShowAddModal(false)} onSave={fetchData} />}
-      {viewingPayment && <ViewPaymentModal payment={viewingPayment} onClose={() => setViewingPayment(null)} />}
+      {viewingPayment && <ViewPaymentModal payment={viewingPayment} allPayments={payments} onClose={() => setViewingPayment(null)} />}
       {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -562,14 +680,14 @@ export default function LabPayments() {
           <h1 className="text-2xl font-black text-gray-900 tracking-tight">All Payments</h1>
           <p className="text-sm text-gray-500 mt-1 font-medium">Comprehensive view of all financial transactions</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-3 w-full sm:w-auto">
           {/* Branch Selector */}
-          <div className="relative group">
-            <button className="bg-white border border-gray-200 px-6 py-2.5 rounded-xl shadow-sm font-bold text-sm transition-all hover:bg-gray-50 flex items-center gap-2 text-gray-700 min-w-[140px] border-orange-100 ring-2 ring-orange-500/5">
+          <div className="relative group w-full sm:w-auto">
+            <button className="w-full bg-white border border-gray-200 px-6 py-2.5 rounded-xl shadow-sm font-bold text-sm transition-all hover:bg-gray-50 flex items-center gap-2 text-gray-700 sm:min-w-[140px] border-orange-100 ring-2 ring-orange-500/5">
               <span className="flex-1 text-left">{selectedBranch === 'all' ? 'All Branches' : selectedBranch === 'tubli' ? 'Tubli Branch' : 'Manama Branch'}</span>
               <ChevronDown size={16} className="text-gray-400 group-hover:rotate-180 transition-transform" />
             </button>
-            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 hidden group-hover:block z-[60] animate-in fade-in slide-in-from-top-2">
+            <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 w-full sm:w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 hidden group-hover:block z-[60] animate-in fade-in slide-in-from-top-2">
               <button 
                 onClick={() => setSelectedBranch('all')} 
                 className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-colors ${selectedBranch === 'all' ? 'bg-blue-900 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
@@ -594,25 +712,26 @@ export default function LabPayments() {
           {/* Export Excel */}
           <button 
             onClick={exportToExcel} 
-            className="bg-white border border-gray-200 px-5 py-2.5 rounded-xl shadow-sm transition-all hover:bg-gray-50 flex items-center gap-3 text-gray-700 min-h-[50px]"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 h-11 rounded-xl btn-export-excel text-xs font-bold shadow-md transition-all active:scale-95"
           >
-            <Download size={18} className="text-gray-400" />
-            <div className="flex flex-col items-start leading-[1.1]">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Export</span>
-              <span className="text-sm font-black text-gray-800">Excel</span>
-            </div>
+            <FileSpreadsheet size={14} /> Excel
           </button>
 
           {/* Export PDF */}
           <button 
             onClick={exportToPDF} 
-            className="bg-white border border-gray-200 px-5 py-2.5 rounded-xl shadow-sm transition-all hover:bg-gray-50 flex items-center gap-3 text-gray-700 min-h-[50px]"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 h-11 rounded-xl btn-export-pdf text-xs font-bold shadow-md transition-all active:scale-95"
           >
-            <Download size={18} className="text-gray-400" />
-            <span className="text-sm font-black text-gray-800 flex items-center gap-2">
-              Export PDF
-            </span>
+            <FileText size={14} /> PDF
           </button>
+          {canCreate && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 h-11 rounded-xl bg-[#1C3756] hover:bg-[#152b44] text-white text-xs font-bold shadow-md transition-all active:scale-95"
+            >
+              <Plus size={14} /> New Payment
+            </button>
+          )}
         </div>
       </div>
 
@@ -622,7 +741,7 @@ export default function LabPayments() {
           <TrendingUp size={18} className="text-orange-500 rotate-180" style={{ transform: 'rotate(180deg)' }} />
           <h3 className="font-bold text-gray-800 text-sm">Advanced Filters</h3>
         </div>
-        <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-8 gap-3 sm:gap-4">
           <div className="relative md:col-span-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -634,7 +753,7 @@ export default function LabPayments() {
           </div>
           <select 
             value={selectedType}
-            onChange={e => setSelectedType(e.target.value)}
+            onChange={e => handleTypeChange(e.target.value)}
             className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/10 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_12px_center] bg-no-repeat"
           >
             <option value="All">All Types</option>
@@ -661,13 +780,53 @@ export default function LabPayments() {
             <option value="Bank Transfer">Bank Transfer</option>
             <option value="Cheque">Cheque</option>
           </select>
+          <select 
+            value={selectedLab}
+            onChange={e => handleLabChange(e.target.value)}
+            className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/10 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_12px_center] bg-no-repeat"
+          >
+            <option value="All">All Laboratories</option>
+            {labs.map(lab => <option key={lab.id} value={String(lab.id)}>{lab.name}</option>)}
+          </select>
+          <select 
+            value={selectedVendor}
+            onChange={e => handleVendorChange(e.target.value)}
+            className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/10 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_12px_center] bg-no-repeat"
+          >
+            <option value="All">All Vendors</option>
+            {vendors.map(vendor => <option key={vendor.id} value={String(vendor.id)}>{vendor.name}</option>)}
+          </select>
+          <div className="relative">
+            <span className="absolute -top-2 left-3 bg-gray-50 px-1 text-[8px] font-black text-gray-400 uppercase tracking-widest">From</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/10 transition-all"
+            />
+          </div>
+          <div className="relative">
+            <span className="absolute -top-2 left-3 bg-gray-50 px-1 text-[8px] font-black text-gray-400 uppercase tracking-widest">To</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              min={dateFrom || undefined}
+              className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 text-xs font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/10 transition-all"
+            />
+          </div>
         </div>
       </div>
 
       {/* Desktop Table View */}
       <div className="hidden md:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
-          <p className="text-xs font-bold text-gray-400">Showing 1 to {filtered.length} of {filtered.length} entries</p>
+        <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <p className="text-xs font-bold text-gray-400">Showing 1 to {filtered.length} of {filtered.length} entries</p>
+            <div className="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-100 text-blue-900 text-xs font-black tracking-tight">
+              Total: BHD {formatBHD(filteredTotal)}
+            </div>
+          </div>
           <div className="flex items-center gap-3">
              <select className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 text-[10px] font-bold text-gray-600 focus:outline-none">
                <option>Date (Newest)</option>
@@ -683,14 +842,14 @@ export default function LabPayments() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50/50">
-                <th className="px-6 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">Payment ID</th>
-                <th className="px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">Date</th>
-                <th className="px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">Type & Item</th>
-                <th className="px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">Amount</th>
-                <th className="px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">Method</th>
-                <th className="px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100 text-center">Status</th>
-                <th className="px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100 text-center">Files</th>
-                <th className="px-6 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100 text-right">Actions</th>
+                <th className="px-6 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Payment ID</th>
+                <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Date</th>
+                <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Type & Item</th>
+                <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Amount</th>
+                <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Method</th>
+                <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100 text-center">Status</th>
+                <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100 text-center">Files</th>
+                <th className="px-6 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -700,31 +859,34 @@ export default function LabPayments() {
               {(filtered || []).map(p => (
                 <tr key={p.id} className="group hover:bg-blue-50/30 transition-colors">
                   <td className="px-6 py-5">
-                    <span className="text-xs font-medium text-gray-400 block tracking-tight group-hover:text-blue-900 transition-colors">
+                    <span className="text-xs font-normal text-gray-400 block tracking-tight group-hover:text-blue-900 transition-colors">
                       {p.id.toString().length > 10 ? p.id.toString().slice(0, 12) + '...' : `p${p.id}zb8nz0mt`}
                     </span>
                   </td>
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-2 text-gray-600">
                       <Calendar size={14} className="text-gray-300" />
-                      <span className="text-xs font-bold">{p.date}</span>
+                      <span className="text-xs font-normal">{p.date}</span>
                     </div>
                   </td>
                   <td className="px-4 py-5">
-                    <div className="space-y-1">
-                      <span className={`px-2 py-0.5 rounded-full ${p.type === 'LAB' ? 'bg-blue-50 text-blue-900 border-blue-100' : 'bg-purple-50 text-purple-900 border-purple-100'} text-[10px] font-bold border tracking-tight uppercase`}>
-                        {p.type}
-                      </span>
-                      <p className="text-[10px] font-black text-gray-900 pl-1 truncate max-w-[150px]">{p.itemName}</p>
+                    <div className="flex items-center gap-3">
+                      <PayeeLogo payment={p} />
+                      <div className="space-y-1 min-w-0">
+                        <span className={`px-2 py-0.5 rounded-full ${p.type === 'LAB' ? 'bg-blue-50 text-blue-900 border-blue-100' : 'bg-purple-50 text-purple-900 border-purple-100'} text-[10px] font-normal border tracking-tight uppercase`}>
+                          {p.type}
+                        </span>
+                        <p className="text-[10px] font-normal text-gray-900 truncate max-w-[150px]">{p.itemName}</p>
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-5">
-                    <p className="text-sm font-black text-gray-900 tracking-tight">BHD {p.amount}</p>
+                    <p className="text-sm font-normal text-gray-900 tracking-tight">BHD {formatBHD(p.amount)}</p>
                   </td>
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-2 text-gray-500">
                       <CreditCard size={14} className="text-gray-300" />
-                      <span className="text-[11px] font-bold">{p.method}</span>
+                      <span className="text-[11px] font-normal">{p.method}</span>
                     </div>
                   </td>
                   <td className="px-4 py-5 text-center">
@@ -733,13 +895,15 @@ export default function LabPayments() {
                   <td className="px-4 py-5 text-center">
                     <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-gray-50 border border-gray-100">
                       <FileText size={12} className="text-gray-300" />
-                      <span className="text-[10px] font-bold text-gray-400">{p.originalData?.documents?.length || 0}</span>
+                      <span className="text-[10px] font-normal text-gray-400">{p.originalData?.documents?.length || 0}</span>
                     </div>
                   </td>
                   <td className="px-6 py-5">
                     <div className="flex items-center justify-end gap-3 opacity-30 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => setViewingPayment(p)} className="text-emerald-600 hover:scale-110 transition-all"><Eye size={16} /></button>
-                      <button onClick={() => handleDeletePayment(p.id)} className="text-red-500 hover:scale-110 transition-all"><Trash2 size={16} /></button>
+                      {canDelete && (
+                        <button onClick={() => handleDeletePayment(p.id)} className="text-red-500 hover:scale-110 transition-all"><Trash2 size={16} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -749,7 +913,11 @@ export default function LabPayments() {
         </div>
       </div>
       {/* Mobile Card View */}
-      <div className="md:hidden space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide py-2">
+      <div className="md:hidden px-5 py-4 rounded-2xl bg-blue-50 border border-blue-100 text-blue-900 flex items-center justify-between">
+        <span className="text-xs font-black uppercase tracking-widest">Displayed Total</span>
+        <span className="text-sm font-black">BHD {formatBHD(filteredTotal)}</span>
+      </div>
+      <div className="md:hidden space-y-4 py-2">
         {filtered.length === 0 && <div className="card text-center py-10 text-gray-400">No payment records found</div>}
         {filtered.map(p => (
           <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4 relative overflow-hidden border-t-4 border-t-orange-500 active:scale-[0.98] transition-transform duration-100">
@@ -758,15 +926,18 @@ export default function LabPayments() {
                   <span className="text-[10px] font-bold text-gray-400 block tracking-tight">
                     {p.id.toString().length > 10 ? p.id.toString().slice(0, 12) + '...' : `p${p.id}zb8nz0mt`}
                   </span>
-                  <div className="flex flex-col gap-1 mt-1">
-                    <span className={`w-fit px-2 py-0.5 rounded-md ${p.type === 'LAB' ? 'bg-blue-50 text-blue-900 border-blue-100' : 'bg-purple-50 text-purple-900 border-purple-100'} text-[9px] font-bold border uppercase tracking-tight`}>
-                      {p.type}
-                    </span>
-                    <span className="text-[10px] font-black text-gray-900 truncate max-w-[120px]">{p.itemName}</span>
+                  <div className="flex items-center gap-3 mt-1">
+                    <PayeeLogo payment={p} size="xs" />
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <span className={`w-fit px-2 py-0.5 rounded-md ${p.type === 'LAB' ? 'bg-blue-50 text-blue-900 border-blue-100' : 'bg-purple-50 text-purple-900 border-purple-100'} text-[9px] font-bold border uppercase tracking-tight`}>
+                        {p.type}
+                      </span>
+                      <span className="text-[10px] font-black text-gray-900 truncate max-w-[120px]">{p.itemName}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-black text-gray-900">BHD {p.amount}</p>
+                  <p className="text-sm font-black text-gray-900">BHD {formatBHD(p.amount)}</p>
                   <div className="flex items-center gap-1.5 justify-end mt-1">
                     <Calendar size={12} className="text-gray-300" />
                     <span className="text-[10px] font-bold text-gray-500">{p.date}</span>
@@ -784,7 +955,9 @@ export default function LabPayments() {
                 </div>
                 <div className="flex gap-3">
                   <button onClick={() => setViewingPayment(p)} className="text-emerald-600"><Eye size={16} /></button>
-                  <button onClick={() => handleDeletePayment(p.id)} className="text-red-500"><Trash2 size={16} /></button>
+                  {canDelete && (
+                    <button onClick={() => handleDeletePayment(p.id)} className="text-red-500"><Trash2 size={16} /></button>
+                  )}
                 </div>
              </div>
           </div>

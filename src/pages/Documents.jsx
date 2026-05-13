@@ -6,8 +6,80 @@ import FilePreviewModal from '../components/FilePreviewModal';
 import FileUpload from '../components/FileUpload';
 import { Search, FileText, Download, Trash2, Eye, Calendar, X, Upload, Image as ImageIcon, CheckCircle2, User, Settings, Tag, Plus, Check, Loader2, Bell } from 'lucide-react';
 import CategoryManagerModal from '../components/CategoryManagerModal';
+import { useAuth } from '../context/AuthContext';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const DEFAULT_CATEGORIES = ['Expense', 'Employee', 'Payment', 'Daily Income Sheet', 'License', 'Work Permit', 'Visa', 'Agreement', 'ID', 'General'];
+
+const A4_SIZE = [595.28, 841.89];
+
+const fetchAttachmentBlob = async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Unable to fetch attachment: ${response.status}`);
+  const blob = await response.blob();
+  return {
+    bytes: await blob.arrayBuffer(),
+    type: blob.type || response.headers.get('content-type') || ''
+  };
+};
+
+const drawFallbackAttachmentPage = async (pdfDoc, attachment, message = 'This attachment type cannot be embedded automatically.') => {
+  const page = pdfDoc.addPage(A4_SIZE);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  page.drawText(attachment.title || 'Document', { x: 42, y: 790, size: 15, font: boldFont, color: rgb(0.08, 0.12, 0.2) });
+  page.drawText(attachment.subtitle || '', { x: 42, y: 768, size: 9, font, color: rgb(0.42, 0.45, 0.5) });
+  page.drawText(message, { x: 42, y: 720, size: 10, font, color: rgb(0.42, 0.45, 0.5) });
+  page.drawText(attachment.url, { x: 42, y: 698, size: 8, font, color: rgb(0.02, 0.24, 0.58), maxWidth: 510 });
+};
+
+const addAttachmentPage = async (pdfDoc, attachment) => {
+  try {
+    const { bytes, type } = await fetchAttachmentBlob(attachment.url);
+    const isPdf = type.includes('pdf') || /\.pdf(\?|#|$)/i.test(attachment.url);
+    const isPng = type.includes('png') || /\.png(\?|#|$)/i.test(attachment.url);
+    const isJpg = type.includes('jpeg') || type.includes('jpg') || /\.jpe?g(\?|#|$)/i.test(attachment.url);
+
+    if (isPdf) {
+      const sourcePdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      const pages = await pdfDoc.copyPages(sourcePdf, sourcePdf.getPageIndices());
+      pages.forEach(page => pdfDoc.addPage(page));
+      return;
+    }
+
+    if (isPng || isJpg) {
+      const image = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+      const page = pdfDoc.addPage(A4_SIZE);
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      page.drawText(attachment.title || 'Document', { x: 42, y: 790, size: 13, font: boldFont, color: rgb(0.08, 0.12, 0.2) });
+      page.drawText(attachment.subtitle || '', { x: 42, y: 770, size: 9, font, color: rgb(0.42, 0.45, 0.5) });
+      const maxWidth = A4_SIZE[0] - 84;
+      const maxHeight = A4_SIZE[1] - 120;
+      const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+      const width = image.width * scale;
+      const height = image.height * scale;
+      page.drawImage(image, { x: (A4_SIZE[0] - width) / 2, y: 42, width, height });
+      return;
+    }
+
+    await drawFallbackAttachmentPage(pdfDoc, attachment);
+  } catch (error) {
+    console.warn('Could not embed document, adding link instead:', error);
+    await drawFallbackAttachmentPage(pdfDoc, attachment, 'This document could not be downloaded for embedding.');
+  }
+};
+
+const savePdfDocument = async (pdfDoc, fileName) => {
+  const bytes = await pdfDoc.save();
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+};
 
 
 
@@ -172,6 +244,10 @@ function UploadDocumentModal({ onClose, onSave, employees = [], laboratories = [
 }
 
 export default function Documents() {
+  const { checkPermission } = useAuth();
+  const canCreate = checkPermission('documents', 'create');
+  const canDelete = checkPermission('documents', 'delete');
+  const canExport = checkPermission('documents', 'export');
   const navigate = useNavigate();
   const [docs, setDocs] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -286,6 +362,28 @@ export default function Documents() {
     }
   };
 
+  const handleExportAttachmentsPDF = async () => {
+    const attachments = filteredDocs
+      .filter(doc => doc.fileUrl)
+      .map((doc, index) => ({
+        url: doc.fileUrl,
+        label: `Document ${index + 1}`,
+        title: doc.title || doc.fileName || `Document ${index + 1}`,
+        subtitle: `${doc.category || 'General'}${doc.fileName ? ` - ${doc.fileName}` : ''}`
+      }));
+
+    if (!attachments.length) {
+      alert('No documents found in the current filter to export.');
+      return;
+    }
+
+    const pdfDoc = await PDFDocument.create();
+    for (const attachment of attachments) {
+      await addAttachmentPage(pdfDoc, attachment);
+    }
+    await savePdfDocument(pdfDoc, `documents_attachments_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
   const getFileIcon = (fileName) => {
     if (!fileName) return <FileText size={18} className="text-gray-400" />;
     const ext = fileName.split('.').pop().toLowerCase();
@@ -323,7 +421,7 @@ export default function Documents() {
         />
       )}
 
-      {modalOpen && (
+      {modalOpen && canCreate && (
         <UploadDocumentModal 
           employees={employees}
           laboratories={laboratories}
@@ -360,9 +458,21 @@ export default function Documents() {
              </div>
            </div>
         </div>
-        <button onClick={() => setModalOpen(true)} className="btn-primary flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
-           <Upload size={16} /> Upload Document
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          {canExport && (
+            <button
+              onClick={handleExportAttachmentsPDF}
+              className="btn-export-pdf flex items-center justify-center gap-2 px-4 h-11 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95"
+            >
+              <FileText size={16} /> Attachments PDF
+            </button>
+          )}
+          {canCreate && (
+            <button onClick={() => setModalOpen(true)} className="btn-primary flex items-center justify-center gap-2 shadow-lg shadow-primary/20 h-11">
+               <Upload size={16} /> Upload Document
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter Bar - Two Row Design */}
@@ -453,7 +563,9 @@ export default function Documents() {
               <h3 className="text-lg font-bold text-gray-800">No documents found</h3>
               <p className="text-sm text-gray-500 mt-1 max-w-sm mx-auto">There are no documents matching your filters. Try adjusting them or upload a new one.</p>
            </div>
-           <button onClick={() => setModalOpen(true)} className="btn-outline px-6 py-2 mt-4 text-primary border-primary hover:bg-primary/5">Upload Document</button>
+           {canCreate && (
+             <button onClick={() => setModalOpen(true)} className="btn-outline px-6 py-2 mt-4 text-primary border-primary hover:bg-primary/5">Upload Document</button>
+           )}
         </div>
       ) : (
         <>
@@ -502,12 +614,16 @@ export default function Documents() {
                            <button onClick={() => setPreviewFile(doc.fileUrl)} className="btn-icon w-9 h-9 rounded-xl text-blue-500 hover:bg-blue-50 hover:shadow-sm" title="View Document">
                              <Eye size={16} />
                            </button>
-                           <a href={doc.fileUrl} download={doc.fileName} className="btn-icon w-9 h-9 rounded-xl text-emerald-500 hover:bg-emerald-50 hover:shadow-sm" title="Download Document">
-                             <Download size={16} />
-                           </a>
-                           <button onClick={() => setConfirmDelete(doc.id)} className="btn-icon w-9 h-9 rounded-xl text-rose-500 hover:bg-rose-50 hover:shadow-sm" title="Delete Document">
-                             <Trash2 size={16} />
-                           </button>
+                          {canExport && (
+                            <a href={doc.fileUrl} download={doc.fileName} className="btn-icon w-9 h-9 rounded-xl text-emerald-500 hover:bg-emerald-50 hover:shadow-sm" title="Download Document">
+                              <Download size={16} />
+                            </a>
+                          )}
+                          {canDelete && (
+                            <button onClick={() => setConfirmDelete(doc.id)} className="btn-icon w-9 h-9 rounded-xl text-rose-500 hover:bg-rose-50 hover:shadow-sm" title="Delete Document">
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                          </div>
                        </td>
                      </tr>
@@ -543,8 +659,12 @@ export default function Documents() {
                 </div>
                 <div className="flex items-center justify-end gap-2 pt-1">
                    <button onClick={() => setPreviewFile(doc.fileUrl)} className="w-10 h-10 flex items-center justify-center text-blue-500 hover:bg-blue-50 rounded-xl border border-blue-50"><Eye size={16} /></button>
-                   <a href={doc.fileUrl} download={doc.fileName} className="w-10 h-10 flex items-center justify-center text-emerald-500 hover:bg-emerald-50 rounded-xl border border-emerald-50"><Download size={16} /></a>
-                   <button onClick={() => setConfirmDelete(doc.id)} className="w-10 h-10 flex items-center justify-center text-rose-500 hover:bg-rose-50 rounded-xl border border-rose-50"><Trash2 size={16} /></button>
+                   {canExport && (
+                     <a href={doc.fileUrl} download={doc.fileName} className="w-10 h-10 flex items-center justify-center text-emerald-500 hover:bg-emerald-50 rounded-xl border border-emerald-50"><Download size={16} /></a>
+                   )}
+                   {canDelete && (
+                     <button onClick={() => setConfirmDelete(doc.id)} className="w-10 h-10 flex items-center justify-center text-rose-500 hover:bg-rose-50 rounded-xl border border-rose-50"><Trash2 size={16} /></button>
+                   )}
                 </div>
               </div>
             ))}

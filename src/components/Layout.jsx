@@ -14,7 +14,7 @@ const Icon = ({ name, size = 18, className = '' }) => {
 
 // Sidebar
 function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const navItems = useMemo(() => {
@@ -24,22 +24,12 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
     const dynamicItems = MASTER_NAV_ITEMS.filter(item => {
       const isAdmin = user.role?.toUpperCase() === 'ADMIN';
 
-      // HIDDEN FOR ADMIN: Special case for work_schedule
-      if (item.module === 'work_schedule' && isAdmin) {
-        return false;
-      }
-
       if (isAdmin) return true; // Admin sees everything else
 
       if (!item.module) return true;
       const perm = (user?.permissions || []).find(p => p.module === item.module);
       return perm ? perm.canView : false;
     });
-
-    // If dynamicItems is empty (e.g. permissions not loaded yet), fallback to hardcoded ROLE_NAV
-    if (dynamicItems.length === 0) {
-      return ROLE_NAV[user.role?.toLowerCase()] || [];
-    }
 
     return dynamicItems;
   }, [user]);
@@ -113,18 +103,20 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
         </nav>
 
         {/* Bottom */}
-        <div className="px-3 py-4 border-t border-white/10">
-          <button
-            onClick={() => {
-              navigate('/settings');
-              if (window.innerWidth < 1024) onMobileClose();
-            }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[15px] font-medium text-blue-100/80 hover:bg-white/10 hover:text-white transition-all duration-200"
-          >
-            <Icon name="Settings" size={20} className="text-blue-200" />
-            <span className={`${collapsed ? 'lg:hidden' : 'block'}`}>Settings</span>
-          </button>
-        </div>
+        {checkPermission('settings', 'view') && (
+          <div className="px-3 py-4 border-t border-white/10">
+            <button
+              onClick={() => {
+                navigate('/settings');
+                if (window.innerWidth < 1024) onMobileClose();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[15px] font-medium text-blue-100/80 hover:bg-white/10 hover:text-white transition-all duration-200"
+            >
+              <Icon name="Settings" size={20} className="text-blue-200" />
+              <span className={`${collapsed ? 'lg:hidden' : 'block'}`}>Settings</span>
+            </button>
+          </div>
+        )}
       </aside>
     </>
   );

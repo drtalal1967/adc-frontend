@@ -20,6 +20,13 @@ import {
 
 const LEAVE_TYPES = ['Annual Leave', 'Sick Leave', 'Relatives Death Leave', 'Maternity Leave', 'Hajj Leave', 'Marriage Leave', 'Others'];
 
+const formatDisplayDate = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-GB');
+};
+
 function RequestModal({ onClose, onSave, user }) {
   const [form, setForm] = useState({ type: 'Annual Leave', from: '', to: '', reason: '', branch: 'Manama Branch', isHalfDay: false });
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -143,6 +150,11 @@ function ActionModal({ onClose, onConfirm, employeeName, action }) {
 
 export default function Leaves() {
   const { user, checkPermission } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const canApprove = isAdmin && checkPermission('leaves', 'update');
+  const canApply = checkPermission('leaves', 'create');
+  const canDelete = isAdmin && checkPermission('leaves', 'delete');
+  const isEmployee = canApply && !canApprove;
   const [leaves, setLeaves] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [modal, setModal] = useState(false);
@@ -244,11 +256,6 @@ export default function Leaves() {
     }
   };
 
-  const canApprove = user?.role === 'admin' && checkPermission('leaves', 'update');
-  const canApply = checkPermission('leaves', 'create');
-  const canDelete = checkPermission('leaves', 'delete');
-  const isEmployee = canApply && !canApprove; 
-
   const activeEmpId = user.employeeId || employees.find(e => e.userId === user.id)?.id;
   const myLeaves = isEmployee ? leaves.filter(l => Number(l.employeeId) === Number(activeEmpId)) : leaves;
 
@@ -269,7 +276,7 @@ export default function Leaves() {
     { label: 'Sick Leave', count: myBalance.sick?.remaining ?? myBalance.sick?.totalRemaining ?? 0, color: 'text-rose-500', accent: 'bg-rose-500', icon: <AlertCircle size={24} /> },
   ] : [];
 
-  const ALL_STATS = [...STATS, ...EMPLOYEE_BALANCES];
+  const ALL_STATS = canApprove ? STATS : EMPLOYEE_BALANCES;
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -287,7 +294,11 @@ export default function Leaves() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-gray-800 tracking-tight leading-none">{canApprove ? 'Leave Requests' : 'My Leave Requests'}</h1>
-          <p className="text-sm text-gray-500 mt-1.5 font-medium">{leaves.filter(l => l.status === 'PENDING').length} pending requests</p>
+          <p className="text-sm text-gray-500 mt-1.5 font-medium">
+            {canApprove
+              ? `${leaves.filter(l => l.status === 'PENDING').length} pending requests`
+              : 'Request leave and track your own approvals'}
+          </p>
         </div>
         {isEmployee && (
           <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-8 py-3 rounded-2xl shadow-xl shadow-primary/20 font-bold text-sm transform transition-transform hover:scale-105 active:scale-95 leading-none">
@@ -297,7 +308,8 @@ export default function Leaves() {
       </div>
 
       {/* Stats */}
-      <div className={`grid grid-cols-1 sm:grid-cols-3 ${EMPLOYEE_BALANCES.length > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-3'} gap-4 mb-8`}>
+      {ALL_STATS.length > 0 && (
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${canApprove ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-4 mb-8`}>
         {ALL_STATS.map(stat => (
           <div key={stat.label} className={`relative overflow-hidden group p-5 rounded-[1.5rem] border border-white shadow-lg shadow-gray-100/30 transition-all duration-300 hover:scale-[1.01] hover:shadow-xl hover:shadow-gray-200/40 bg-gradient-to-br ${
             stat.label === 'Pending' ? 'from-orange-50 to-amber-50/50' :
@@ -341,6 +353,7 @@ export default function Leaves() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Leave Cards */}
       <div className="space-y-4">
@@ -380,7 +393,7 @@ export default function Leaves() {
                    </div>
                    <div className="flex items-center gap-1.5">
                       <Calendar size={14} className="text-gray-400 group-hover:text-gray-600 transition-colors" />
-                      {new Date(l.startDate).toLocaleDateString()} to {new Date(l.endDate).toLocaleDateString()} <span className="text-[10px] font-black text-gray-400 opacity-60 ml-1">({l.totalDays} DAYS)</span>
+                      {formatDisplayDate(l.startDate)} to {formatDisplayDate(l.endDate)} <span className="text-[10px] font-black text-gray-400 opacity-60 ml-1">({l.totalDays} DAYS)</span>
                    </div>
                 </div>
                 {l.reason && (
@@ -422,7 +435,7 @@ export default function Leaves() {
               
               {canApprove && (
                 <div className="flex gap-2">
-                  {l.status !== 'Approved' && (
+                  {l.status !== 'APPROVED' && (
                     <button 
                       onClick={() => setActionModal({ id: l.id, name: l.employee ? `${l.employee.firstName} ${l.employee.lastName}` : 'Employee', action: 'Approved' })}
                       className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm flex items-center justify-center active:scale-95 border border-emerald-100"
@@ -431,7 +444,7 @@ export default function Leaves() {
                       <Check size={18} strokeWidth={3} />
                     </button>
                   )}
-                  {l.status !== 'Rejected' && (
+                  {l.status !== 'REJECTED' && (
                     <button 
                       onClick={() => setActionModal({ id: l.id, name: l.employee ? `${l.employee.firstName} ${l.employee.lastName}` : 'Employee', action: 'Rejected' })}
                       className="w-10 h-10 rounded-xl bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm flex items-center justify-center active:scale-95 border border-red-100"
@@ -440,13 +453,15 @@ export default function Leaves() {
                       <X size={18} strokeWidth={3} />
                     </button>
                   )}
-                  <button 
-                    onClick={() => handleDelete(l.id)}
-                    className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-all shadow-sm flex items-center justify-center active:scale-95 border border-gray-100"
-                    title="Delete Request"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {canDelete && (
+                    <button 
+                      onClick={() => handleDelete(l.id)}
+                      className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-all shadow-sm flex items-center justify-center active:scale-95 border border-gray-100"
+                      title="Delete Request"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
               )}
               
@@ -463,7 +478,9 @@ export default function Leaves() {
                 <AlertCircle size={40} />
              </div>
              <h3 className="text-xl font-bold text-gray-400">No leave requests found</h3>
-             <p className="text-sm text-gray-400 mt-2 font-medium">All caught up! No requests need your attention.</p>
+             <p className="text-sm text-gray-400 mt-2 font-medium">
+               {canApprove ? 'All caught up! No requests need your attention.' : 'Your submitted leave requests will appear here.'}
+             </p>
           </div>
         )}
       </div>

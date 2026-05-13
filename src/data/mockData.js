@@ -189,31 +189,31 @@ export const PAYMENT_METHODS = [
 ];
 
 export const PAYMENT_STATUS_DIST = [
-  { name: 'Paid', value: 95, color: '#10B981' },
+  { name: 'Paid', value: 95, color: '#2C4697' },
 ];
 
 export const EXPENSE_CATEGORIES = [
-  { name: 'Medical Supplies', value: 45, color: '#2F5D90' },
+  { name: 'Medical Supplies', value: 45, color: '#2C4697' },
   { name: 'Equipment', value: 25, color: '#F58220' },
   { name: 'Cleaning', value: 10, color: '#78A4CF' },
-  { name: 'Utilities', value: 12, color: '#10B981' },
-  { name: 'Others', value: 8, color: '#F59E0B' },
+  { name: 'Utilities', value: 12, color: '#2C4697' },
+  { name: 'Others', value: 8, color: '#F58220' },
 ];
 
 export const PROSTHESIS_STATS = [
-  { name: 'Crown', value: 38, color: '#2F5D90' },
+  { name: 'Crown', value: 38, color: '#2C4697' },
   { name: 'Bridge', value: 22, color: '#F58220' },
-  { name: 'Removable', value: 15, color: '#A5C3DF' },
-  { name: 'Veneer', value: 14, color: '#10B981' },
-  { name: 'Night Guard', value: 7, color: '#F59E0B' },
-  { name: 'Inlay/Onlay', value: 4, color: '#EF4444' },
+  { name: 'Removable', value: 15, color: '#DDE8F7' },
+  { name: 'Veneer', value: 14, color: '#2C4697' },
+  { name: 'Night Guard', value: 7, color: '#F58220' },
+  { name: 'Inlay/Onlay', value: 4, color: '#F58220' },
 ];
 
 export const VENDOR_STATS = [
-  { name: 'Medical Supplies', value: 45, color: '#2F5D90' },
+  { name: 'Medical Supplies', value: 45, color: '#2C4697' },
   { name: 'Equipment', value: 30, color: '#F58220' },
-  { name: 'Cleaning', value: 15, color: '#A5C3DF' },
-  { name: 'Others', value: 10, color: '#10B981' },
+  { name: 'Cleaning', value: 15, color: '#DDE8F7' },
+  { name: 'Others', value: 10, color: '#2C4697' },
 ];
 
 // Role-based nav config (Main source for sidebar generation)
@@ -224,16 +224,15 @@ export const MASTER_NAV_ITEMS = [
   { label: 'Laboratories', path: '/laboratories', icon: 'Building2', module: 'laboratories' },
   { label: 'Vendors', path: '/vendors', icon: 'Store', module: 'vendors' },
   { label: 'Financials', path: '/financials', icon: 'Landmark', module: 'financials' },
-  { label: 'Financial Analytics', path: '/analytics', icon: 'BarChart3', module: 'financials' },
   { label: 'All Payments', path: '/lab-payments', icon: 'CreditCard', module: 'payments' },
   { label: 'Employees', path: '/employees', icon: 'Users', module: 'employees' },
-  { label: 'Schedule', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+  { label: 'Schedule Setup', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+  { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
   { label: 'Leave Requests', path: '/leaves', icon: 'ClipboardList', module: 'leaves' },
   { label: 'Leave Balance', path: '/leave-balance', icon: 'ShieldCheck', module: 'leave_balance' },
   { label: 'Reports', path: '/reports', icon: 'BarChart3', module: 'reports' },
   { label: 'Reminders', path: '/reminders', icon: 'Bell', module: 'reminders' },
   { label: 'Documents', path: '/documents', icon: 'FileText', module: 'documents' },
-  { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
 ];
 
 export const ROLE_NAV = {
@@ -242,12 +241,12 @@ export const ROLE_NAV = {
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard', module: 'dashboard' },
     { label: 'Lab Cases', path: '/lab-cases', icon: 'FlaskConical', module: 'lab_cases' },
     { label: 'Expenses', path: '/expenses', icon: 'Receipt', module: 'expenses' },
-    { label: 'Schedule', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Schedule Setup', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
     { label: 'Leave Approvals', path: '/leaves', icon: 'ClipboardList', module: 'leaves' },
     { label: 'Leave Balance', path: '/leave-balance', icon: 'ShieldCheck', module: 'leave_balance' },
     { label: 'Reports', path: '/reports', icon: 'BarChart3', module: 'reports' },
     { label: 'All Payments', path: '/lab-payments', icon: 'CreditCard', module: 'payments' },
-    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
     { label: 'Reminders', path: '/reminders', icon: 'Bell', module: 'reminders' },
     { label: 'Documents', path: '/documents', icon: 'FileText', module: 'documents' },
   ],
@@ -255,36 +254,36 @@ export const ROLE_NAV = {
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard', module: 'dashboard' },
     { label: 'Lab Cases', path: '/lab-cases', icon: 'FlaskConical', module: 'lab_cases' },
     { label: 'Employees', path: '/employees', icon: 'Users', module: 'employees' },
-    { label: 'Schedule', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Schedule Setup', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
     { label: 'Leave Request', path: '/leaves', icon: 'ClipboardList', module: 'leaves' },
-    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'schedule' },
     { label: 'Reminders', path: '/reminders', icon: 'Bell', module: 'reminders' },
     { label: 'Documents', path: '/documents', icon: 'FileText', module: 'documents' },
   ],
   dentist: [
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard', module: 'dashboard' },
     { label: 'Lab Cases', path: '/lab-cases', icon: 'FlaskConical', module: 'lab_cases' },
-    { label: 'Schedule', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Schedule Setup', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
     { label: 'Leave Request', path: '/leaves', icon: 'ClipboardList', module: 'leaves' },
-    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'schedule' },
     { label: 'Reminders', path: '/reminders', icon: 'Bell', module: 'reminders' },
   ],
   assistant: [
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard', module: 'dashboard' },
     { label: 'Lab Cases', path: '/lab-cases', icon: 'FlaskConical', module: 'lab_cases' },
-    { label: 'Schedule', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Schedule Setup', path: '/schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
     { label: 'Leave Request', path: '/leaves', icon: 'ClipboardList', module: 'leaves' },
-    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'schedule' },
     { label: 'Reminders', path: '/reminders', icon: 'Bell', module: 'reminders' },
     { label: 'Documents', path: '/documents', icon: 'FileText', module: 'documents' },
   ],
   accountant: [
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard', module: 'dashboard' },
     { label: 'Expenses', path: '/expenses', icon: 'Receipt', module: 'expenses' },
-    { label: 'Financial Analytics', path: '/analytics', icon: 'BarChart3', module: 'financials' },
+    { label: 'Financials', path: '/financials', icon: 'Landmark', module: 'financials' },
     { label: 'Reports', path: '/reports', icon: 'FileText', module: 'reports' },
     { label: 'All Payments', path: '/lab-payments', icon: 'CreditCard', module: 'payments' },
-    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'schedule' },
+    { label: 'Work Schedule', path: '/work-schedule', icon: 'CalendarDays', module: 'work_schedule' },
     { label: 'Reminders', path: '/reminders', icon: 'Bell', module: 'reminders' },
   ],
 };
@@ -303,7 +302,6 @@ export const ROLE_PERMISSIONS = {
     leaves: ['view', 'create', 'edit', 'delete', 'export'],
     reports: ['view', 'create', 'edit', 'delete', 'export'],
     labPayments: ['view', 'create', 'edit', 'delete', 'export'],
-    analytics: ['view', 'export'],
     reminders: ['view', 'create', 'edit', 'delete', 'export'],
     settings: ['view', 'create', 'edit', 'delete', 'export'],
   },
@@ -353,7 +351,6 @@ export const ROLE_PERMISSIONS = {
     financials: ['view', 'export'],
     reports: ['view', 'export'],
     labPayments: ['view', 'create', 'edit', 'export'],
-    analytics: ['view', 'export'],
     reminders: ['view'],
     settings: ['view'],
   },
@@ -384,3 +381,4 @@ export const SUBSCRIPTION_INFO = {
     { id: 'INV-003', date: '2026-01-01', amount: 249, status: 'Paid' },
   ]
 };
+

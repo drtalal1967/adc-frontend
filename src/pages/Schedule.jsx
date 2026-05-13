@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import API from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Trash2, CalendarDays, Clock, X, Check } from 'lucide-react';
+import { Plus, Trash2, Edit2, CalendarDays, Clock, X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const DAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
+const toLocalDateKey = (value) => {
+  if (!value) return '';
+  const raw = String(value);
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw.slice(0, 10);
+  return `${String(d.getFullYear()).padStart(4, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
@@ -49,7 +56,7 @@ function ScheduleModal({ onClose, onSave, employees }) {
     while (current <= end) {
       const dayName = DAYS[current.getDay()];
       if (form.daysOfWeek.includes(dayName)) {
-        dates.push(current.toISOString().split('T')[0]);
+        dates.push(toLocalDateKey(current));
       }
       current.setDate(current.getDate() + 1);
     }
@@ -164,18 +171,107 @@ function ScheduleModal({ onClose, onSave, employees }) {
           </button>
         </div>
       </div>
+
+    </div>
+  );
+}
+
+function EditScheduleModal({ schedule, employees, onClose, onSave }) {
+  const [form, setForm] = useState({
+    branch: schedule?.branch || 'Tubli',
+    employeeId: schedule?.employeeId ? String(schedule.employeeId) : '',
+    date: schedule?.date || '',
+    startTime: schedule?.startTime?.slice(0, 5) || '09:00',
+    endTime: schedule?.endTime?.slice(0, 5) || '17:00'
+  });
+
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+
+  return (
+    <div className="modal-overlay z-[100]" onClick={onClose}>
+      <div className="modal-content max-w-lg bg-white overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">Edit Schedule</h2>
+            <p className="text-xs text-gray-400 font-semibold mt-0.5">Update this single schedule entry</p>
+          </div>
+          <button onClick={onClose} className="btn-icon text-gray-400"><X size={20} /></button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Employee *</label>
+            <select value={form.employeeId} onChange={e => update('employeeId', e.target.value)} className="input">
+              <option value="">Select employee...</option>
+              {employees.map(employee => (
+                <option key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Branch *</label>
+            <select value={form.branch} onChange={e => update('branch', e.target.value)} className="input">
+              <option value="Tubli">Tubli</option>
+              <option value="Manama">Manama</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Date *</label>
+            <input type="date" value={form.date} onChange={e => update('date', e.target.value)} className="input" />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Start Time *</label>
+              <input type="time" value={form.startTime} onChange={e => update('startTime', e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">End Time *</label>
+              <input type="time" value={form.endTime} onChange={e => update('endTime', e.target.value)} className="input" />
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 border-t border-gray-100 flex justify-end gap-3">
+          <button onClick={onClose} className="btn-ghost px-5 py-3 rounded-xl text-sm font-bold">Cancel</button>
+          <button
+            disabled={!form.employeeId || !form.date || !form.startTime || !form.endTime}
+            onClick={() => onSave(schedule.id, {
+              employeeId: parseInt(form.employeeId),
+              branch: form.branch,
+              date: form.date,
+              startTime: form.startTime,
+              endTime: form.endTime
+            })}
+            className="btn-secondary px-7 py-3 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function Schedule() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
+  const canCreate = checkPermission('schedule', 'create');
+  const canUpdate = checkPermission('schedule', 'update');
+  const canDelete = checkPermission('schedule', 'delete');
   const [schedules, setSchedules] = useState([]);
+  const [hoursSchedules, setHoursSchedules] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [leaves, setLeaves] = useState([]);
   const [modal, setModal] = useState(false);
+  const [editSchedule, setEditSchedule] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState('day');
   const [loading, setLoading] = useState(true);
+  const [hoveredEmployee, setHoveredEmployee] = useState(null);
+  const [selectedEmployee, setSelectedEmployee] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -197,14 +293,83 @@ export default function Schedule() {
         end = range.end;
       }
 
-      const schedRes = await API.get('/schedules', { params: { start, end } });
-      let fetchedSchedules = schedRes.data;
-      
-      // Filter for regular employees so they only see their own schedule
-      if (user && user.role !== 'admin' && user.role !== 'manager') {
-        fetchedSchedules = fetchedSchedules.filter(s => s.employeeId === user.employeeId);
+      const summaryWeekRange = getWeekRange(selectedDate);
+      const summaryMonthRange = getMonthRange(selectedDate);
+      const summaryStart = summaryWeekRange.start < summaryMonthRange.start ? summaryWeekRange.start : summaryMonthRange.start;
+      const summaryEnd = summaryWeekRange.end > summaryMonthRange.end ? summaryWeekRange.end : summaryMonthRange.end;
+
+      const [schedRes, summarySchedRes] = await Promise.all([
+        API.get('/schedules', { params: { start, end } }),
+        API.get('/schedules', { params: { start: summaryStart, end: summaryEnd } }),
+      ]);
+      let fetchedSchedules = schedRes.data || [];
+      let fetchedHoursSchedules = summarySchedRes.data || [];
+      let fetchedLeaves = [];
+
+      try {
+        const leaveRes = await API.get('/leave-requests');
+        fetchedLeaves = leaveRes.data || [];
+        setLeaves(fetchedLeaves);
+      } catch (err) {
+        console.warn('Could not fetch leaves');
+        setLeaves([]);
       }
-      setSchedules(fetchedSchedules);
+
+      const approvedLeaves = fetchedLeaves.filter(l => {
+        if (String(l.status || '').toUpperCase() !== 'APPROVED') return false;
+        const leaveStart = toLocalDateKey(l.startDate);
+        const leaveEnd = toLocalDateKey(l.endDate);
+        return leaveStart <= summaryEnd && leaveEnd >= summaryStart;
+      });
+
+      const findLeave = (employeeId, dateStr) => approvedLeaves.find(l => {
+        const leaveStart = toLocalDateKey(l.startDate);
+        const leaveEnd = toLocalDateKey(l.endDate);
+        return String(l.employeeId) === String(employeeId) && dateStr >= leaveStart && dateStr <= leaveEnd;
+      });
+
+      fetchedSchedules = fetchedSchedules.map(schedule => {
+        const leave = findLeave(schedule.employeeId, schedule.date);
+        return leave ? { ...schedule, status: 'On Leave', leaveType: leave.leaveType, title: 'On Leave' } : schedule;
+      });
+
+      fetchedHoursSchedules = fetchedHoursSchedules.map(schedule => {
+        const leave = findLeave(schedule.employeeId, schedule.date);
+        return leave ? { ...schedule, status: 'On Leave', leaveType: leave.leaveType, title: 'On Leave' } : schedule;
+      });
+
+      const scheduledKeys = new Set(fetchedSchedules.map(schedule => `${schedule.employeeId}|${schedule.date}`));
+      const leaveOnlySchedules = [];
+      approvedLeaves.forEach(leave => {
+        const leaveStart = toLocalDateKey(leave.startDate);
+        const leaveEnd = toLocalDateKey(leave.endDate);
+        const current = new Date(leaveStart + 'T00:00:00');
+        const last = new Date(leaveEnd + 'T00:00:00');
+        while (current <= last) {
+          const dateStr = toLocalDateKey(current);
+          const key = `${leave.employeeId}|${dateStr}`;
+          if (dateStr >= start && dateStr <= end && !scheduledKeys.has(key)) {
+            leaveOnlySchedules.push({
+              id: `leave-${leave.id}-${dateStr}`,
+              employeeId: leave.employeeId,
+              date: dateStr,
+              startTime: '',
+              endTime: '',
+              branch: leave.employee?.branch || 'All Branches',
+              status: 'On Leave',
+              leaveType: leave.leaveType,
+              title: 'On Leave',
+              employeeName: leave.employee ? `${leave.employee.firstName} ${leave.employee.lastName}` : 'Employee on leave',
+              employee: leave.employee,
+              isLeaveOnly: true,
+            });
+          }
+          current.setDate(current.getDate() + 1);
+        }
+      });
+
+      setSchedules([...fetchedSchedules, ...leaveOnlySchedules]);
+      setHoursSchedules(fetchedHoursSchedules);
 
       try {
         const empRes = await API.get('/employees');
@@ -229,6 +394,17 @@ export default function Schedule() {
     }
   };
 
+  const handleUpdate = async (id, payload) => {
+    try {
+      await API.put(`/schedules/${id}`, payload);
+      setEditSchedule(null);
+      fetchData();
+    } catch (err) {
+      console.error('Error updating schedule:', err);
+      alert(err.response?.data?.message || 'Failed to update schedule');
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this shift?')) return;
     try {
@@ -247,19 +423,39 @@ export default function Schedule() {
     start.setDate(date.getDate() - daysSinceSaturday);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
-    return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
+    return { start: toLocalDateKey(start), end: toLocalDateKey(end) };
   };
 
   const getMonthRange = (dateStr) => {
     const date = new Date(dateStr);
     const start = new Date(date.getFullYear(), date.getMonth(), 1);
     const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-    return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] };
+    return { start: toLocalDateKey(start), end: toLocalDateKey(end) };
   };
 
-  const filteredSchedules = schedules;
+  const normalizeBranch = (branch) => String(branch || '')
+    .toLowerCase()
+    .replace(/\s+branch$/, '')
+    .trim();
 
-  const uniqueDates = [...new Set(schedules.map(s => s.date))].sort();
+  const getScheduleBranch = (schedule) => {
+    const emp = employees.find(e => String(e.id) === String(schedule.employeeId));
+    return schedule.branch || schedule.employee?.branch || emp?.branch || '';
+  };
+
+  const filteredSchedules = schedules.filter(s => {
+    const employeeMatch = selectedEmployee ? String(s.employeeId) === selectedEmployee : true;
+    const branchMatch = selectedBranch ? normalizeBranch(getScheduleBranch(s)) === selectedBranch : true;
+    return employeeMatch && branchMatch;
+  });
+
+  const filteredHoursSchedules = hoursSchedules.filter(s => {
+    const employeeMatch = selectedEmployee ? String(s.employeeId) === selectedEmployee : true;
+    const branchMatch = selectedBranch ? normalizeBranch(getScheduleBranch(s)) === selectedBranch : true;
+    return employeeMatch && branchMatch;
+  });
+
+  const uniqueDates = [...new Set(filteredSchedules.map(s => s.date))].sort();
 
   const getViewHeader = () => {
     if (viewMode === 'day') return formatDate(selectedDate);
@@ -272,6 +468,14 @@ export default function Schedule() {
       return date.toLocaleString('default', { month: 'long', year: 'numeric' });
     }
     return '';
+  };
+
+  const moveDate = (direction) => {
+    const date = new Date(selectedDate + 'T00:00:00');
+    if (viewMode === 'day') date.setDate(date.getDate() + direction);
+    if (viewMode === 'week') date.setDate(date.getDate() + direction * 7);
+    if (viewMode === 'month') date.setMonth(date.getMonth() + direction);
+    setSelectedDate(toLocalDateKey(date));
   };
 
   const getMonthDays = (dateStr) => {
@@ -307,7 +511,7 @@ export default function Schedule() {
     return days;
   };
 
-  const schedulesByDate = schedules.reduce((acc, s) => {
+  const schedulesByDate = filteredSchedules.reduce((acc, s) => {
     if (!acc[s.date]) acc[s.date] = [];
     acc[s.date].push(s);
     return acc;
@@ -318,13 +522,135 @@ export default function Schedule() {
     return hour < 12 ? 'Morning' : 'Evening';
   };
 
-  return (
+const getEmployeeColor = (employeeId, employee = null) => {
+const isEmployeeOnLeave = (employeeId, date) => {
+  return leaves.some(l => {
+    if (l.status?.toUpperCase() !== 'APPROVED') return false;
+
+    const current = date;
+    const start = toLocalDateKey(l.startDate);
+    const end = toLocalDateKey(l.endDate);
+
+    return (
+      String(l.employeeId) === String(employeeId) &&
+      current >= start &&
+      current <= end
+    );
+  });
+};
+  const colors = [
+    { key: 'sky', bg: 'bg-sky-100', border: 'border-sky-600', text: 'text-sky-950', muted: 'text-sky-700', bar: 'bg-sky-600' },
+    { key: 'emerald', bg: 'bg-emerald-100', border: 'border-emerald-600', text: 'text-emerald-950', muted: 'text-emerald-700', bar: 'bg-emerald-600' },
+    { key: 'violet', bg: 'bg-violet-100', border: 'border-violet-600', text: 'text-violet-950', muted: 'text-violet-700', bar: 'bg-violet-600' },
+    { key: 'amber', bg: 'bg-amber-100', border: 'border-amber-600', text: 'text-amber-950', muted: 'text-amber-700', bar: 'bg-amber-600' },
+    { key: 'cyan', bg: 'bg-cyan-100', border: 'border-cyan-600', text: 'text-cyan-950', muted: 'text-cyan-700', bar: 'bg-cyan-600' },
+    { key: 'fuchsia', bg: 'bg-fuchsia-100', border: 'border-fuchsia-600', text: 'text-fuchsia-950', muted: 'text-fuchsia-700', bar: 'bg-fuchsia-600' },
+    { key: 'lime', bg: 'bg-lime-100', border: 'border-lime-600', text: 'text-lime-950', muted: 'text-lime-700', bar: 'bg-lime-600' },
+    { key: 'indigo', bg: 'bg-indigo-100', border: 'border-indigo-600', text: 'text-indigo-950', muted: 'text-indigo-700', bar: 'bg-indigo-600' },
+    { key: 'orange', bg: 'bg-orange-100', border: 'border-orange-600', text: 'text-orange-950', muted: 'text-orange-700', bar: 'bg-orange-600' },
+    { key: 'teal', bg: 'bg-teal-100', border: 'border-teal-600', text: 'text-teal-950', muted: 'text-teal-700', bar: 'bg-teal-600' },
+    { key: 'purple', bg: 'bg-purple-100', border: 'border-purple-600', text: 'text-purple-950', muted: 'text-purple-700', bar: 'bg-purple-600' },
+    { key: 'pink', bg: 'bg-pink-100', border: 'border-pink-600', text: 'text-pink-950', muted: 'text-pink-700', bar: 'bg-pink-600' },
+    { key: 'red', bg: 'bg-red-100', border: 'border-red-600', text: 'text-red-950', muted: 'text-red-700', bar: 'bg-red-600' },
+    { key: 'blue', bg: 'bg-blue-100', border: 'border-blue-600', text: 'text-blue-950', muted: 'text-blue-700', bar: 'bg-blue-600' },
+    { key: 'green', bg: 'bg-green-100', border: 'border-green-600', text: 'text-green-950', muted: 'text-green-700', bar: 'bg-green-600' },
+    { key: 'yellow', bg: 'bg-yellow-100', border: 'border-yellow-600', text: 'text-yellow-950', muted: 'text-yellow-700', bar: 'bg-yellow-600' },
+    { key: 'rose', bg: 'bg-rose-100', border: 'border-rose-600', text: 'text-rose-950', muted: 'text-rose-700', bar: 'bg-rose-600' },
+    { key: 'slate', bg: 'bg-slate-100', border: 'border-slate-600', text: 'text-slate-950', muted: 'text-slate-700', bar: 'bg-slate-600' },
+    { key: 'stone', bg: 'bg-stone-100', border: 'border-stone-600', text: 'text-stone-950', muted: 'text-stone-700', bar: 'bg-stone-600' },
+    { key: 'zinc', bg: 'bg-zinc-100', border: 'border-zinc-600', text: 'text-zinc-950', muted: 'text-zinc-700', bar: 'bg-zinc-600' },
+    { key: 'neutral', bg: 'bg-neutral-100', border: 'border-neutral-600', text: 'text-neutral-950', muted: 'text-neutral-700', bar: 'bg-neutral-600' },
+    { key: 'gray', bg: 'bg-gray-100', border: 'border-gray-600', text: 'text-gray-950', muted: 'text-gray-700', bar: 'bg-gray-600' },
+    { key: 'deepblue', bg: 'bg-blue-50', border: 'border-blue-800', text: 'text-blue-950', muted: 'text-blue-800', bar: 'bg-blue-800' },
+    { key: 'deepgreen', bg: 'bg-green-50', border: 'border-green-800', text: 'text-green-950', muted: 'text-green-800', bar: 'bg-green-800' },
+    { key: 'deeporange', bg: 'bg-orange-50', border: 'border-orange-800', text: 'text-orange-950', muted: 'text-orange-800', bar: 'bg-orange-800' },
+  ];
+
+  const savedColor = employee?.scheduleColor || employees.find(e => String(e.id) === String(employeeId))?.scheduleColor;
+  const selectedColor = colors.find(color => color.key === savedColor);
+  if (selectedColor) return selectedColor;
+
+  const numericId = Number(employeeId);
+  if (Number.isFinite(numericId) && numericId > 0) {
+    return colors[(numericId - 1) % colors.length];
+  }
+  return colors[0];
+};
+
+  const getScheduleHours = (schedule) => {
+    if (!schedule || schedule.status === 'On Leave' || schedule.isLeaveOnly) return 0;
+    if (!schedule.startTime || !schedule.endTime) return 0;
+
+    const toMinutes = (value) => {
+      if (!value) return null;
+      if (String(value).includes('T')) {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? null : d.getHours() * 60 + d.getMinutes();
+      }
+      const [hours, minutes] = String(value).slice(0, 5).split(':').map(Number);
+      if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+      return hours * 60 + minutes;
+    };
+
+    const start = toMinutes(schedule.startTime);
+    const end = toMinutes(schedule.endTime);
+    if (start === null || end === null) return 0;
+    const duration = end >= start ? end - start : end + 24 * 60 - start;
+    return duration / 60;
+  };
+
+  const weekRange = getWeekRange(selectedDate);
+  const monthRange = getMonthRange(selectedDate);
+  const employeeHourSummary = (() => {
+    const summary = new Map();
+    filteredHoursSchedules.forEach(schedule => {
+      const hours = getScheduleHours(schedule);
+      if (hours <= 0) return;
+
+      const employeeId = schedule.employeeId;
+      const emp = employees.find(e => String(e.id) === String(employeeId)) || schedule.employee;
+      const employeeName = schedule.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown');
+
+      if (!summary.has(employeeId)) {
+        summary.set(employeeId, {
+          employeeId,
+          employee: emp,
+          name: employeeName,
+          weekHours: 0,
+          monthHours: 0,
+        });
+      }
+
+      const row = summary.get(employeeId);
+      if (schedule.date >= weekRange.start && schedule.date <= weekRange.end) row.weekHours += hours;
+      if (schedule.date >= monthRange.start && schedule.date <= monthRange.end) row.monthHours += hours;
+    });
+
+    return [...summary.values()]
+      .filter(row => row.weekHours > 0 || row.monthHours > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const formatHours = (hours) => Number(hours || 0).toLocaleString('en-US', {
+    minimumFractionDigits: hours % 1 === 0 ? 0 : 1,
+    maximumFractionDigits: 1,
+  });
+  
+return (
     <div className="space-y-5 animate-fade-in">
-      {modal && <ScheduleModal onClose={() => setModal(false)} employees={employees} onSave={handleSave} />}
+      {modal && canCreate && <ScheduleModal onClose={() => setModal(false)} employees={employees} onSave={handleSave} />}
+      {editSchedule && canUpdate && (
+        <EditScheduleModal
+          schedule={editSchedule}
+          employees={employees}
+          onClose={() => setEditSchedule(null)}
+          onSave={handleUpdate}
+        />
+      )}
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="section-title text-xl md:text-2xl">Schedule</h1>
+          <h1 className="section-title text-xl md:text-2xl">Schedule Setup</h1>
           <p className="section-subtitle text-xs md:text-sm">Employee working hours assignment</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -341,11 +667,53 @@ export default function Schedule() {
               </button>
             ))}
           </div>
-          {!['dentist', 'assistant'].includes(user?.role) && (
-            <button onClick={() => setModal(true)} className="btn-primary flex-1 sm:flex-none justify-center py-2 text-sm shadow-lg shadow-primary/20">
-              <Plus size={15} /> Assign Schedule
-            </button>
-          )}
+          <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 w-full lg:w-auto">
+
+  <select
+    value={selectedEmployee}
+    onChange={e => setSelectedEmployee(e.target.value)}
+    className="input text-sm w-full sm:w-auto"
+  >
+    <option value="">All Employees</option>
+    {employees.map(e => (
+      <option key={e.id} value={e.id}>
+        {e.firstName} {e.lastName}
+      </option>
+    ))}
+  </select>
+
+  <select
+    value={selectedBranch}
+    onChange={e => setSelectedBranch(e.target.value)}
+    className="input text-sm w-full sm:w-auto"
+  >
+    <option value="">All Branches</option>
+    <option value="tubli">Tubli Branch</option>
+    <option value="manama">Manama Branch</option>
+  </select>
+
+  {(selectedEmployee || selectedBranch) && (
+    <button
+      onClick={() => {
+        setSelectedEmployee('');
+        setSelectedBranch('');
+      }}
+      className="text-xs px-2 py-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 w-full sm:w-auto"
+    >
+      Clear
+    </button>
+  )}
+
+  {canCreate && (
+    <button
+      onClick={() => setModal(true)}
+      className="btn-primary w-full sm:w-auto sm:flex-none justify-center py-2 text-sm shadow-lg shadow-primary/20"
+    >
+      <Plus size={15} /> Assign Schedule
+    </button>
+  )}
+
+</div>
         </div>
       </div>
 
@@ -376,9 +744,27 @@ export default function Schedule() {
         {/* Schedule entries */}
         <div className="lg:col-span-3 space-y-3">
           <div className="flex items-center justify-between bg-white px-5 py-3 rounded-2xl border border-gray-100">
-            <div>
+            <div className="flex items-center gap-3 min-w-0">
+               <button
+                 type="button"
+                 onClick={() => moveDate(-1)}
+                 className="w-9 h-9 rounded-xl border border-gray-100 bg-gray-50 text-gray-500 hover:text-primary hover:bg-blue-50 hover:border-blue-100 transition-all flex items-center justify-center shrink-0"
+                 title={`Previous ${viewMode}`}
+               >
+                 <ChevronLeft size={18} />
+               </button>
+            <div className="min-w-0">
                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{viewMode} VIEW</p>
                <h3 className="font-black text-gray-800 text-base tracking-tight">{getViewHeader()}</h3>
+            </div>
+               <button
+                 type="button"
+                 onClick={() => moveDate(1)}
+                 className="w-9 h-9 rounded-xl border border-gray-100 bg-gray-50 text-gray-500 hover:text-primary hover:bg-blue-50 hover:border-blue-100 transition-all flex items-center justify-center shrink-0"
+                 title={`Next ${viewMode}`}
+               >
+                 <ChevronRight size={18} />
+               </button>
             </div>
             <div className="text-right">
                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Shifts</p>
@@ -388,7 +774,8 @@ export default function Schedule() {
 
           <div className="grid grid-cols-1 gap-3">
             {viewMode === 'month' ? (
-              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-x-auto shadow-sm">
+                <div className="min-w-[720px] lg:min-w-0">
                 <div className="grid grid-cols-7 border-b border-gray-100 bg-gray-50/50">
                   {DAYS.map(day => (
                     <div key={day} className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-widest">{day}</div>
@@ -405,17 +792,34 @@ export default function Schedule() {
                           {isToday && <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>}
                         </div>
                         <div className="flex flex-col gap-1 overflow-y-auto scrollbar-hide">
-                          {daySchedules.map(s => (
-                            <div key={s.id} className="p-1.5 rounded-lg bg-primary/5 border border-primary/10 text-[9px] group relative overflow-hidden">
-                              <p className="font-black text-primary truncate leading-tight">{s.employeeName || (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown')}</p>
-                              <p className="text-gray-500 font-bold opacity-70">({getShiftLabel(s.startTime)})</p>
-                              <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-primary transform translate-x-full group-hover:translate-x-0 transition-transform" />
+                          {daySchedules.map(s => {
+                            const isLeave = s.status === 'On Leave';
+                            const color = getEmployeeColor(s.employeeId, s.employee);
+                            return (
+  <div
+  key={s.id}
+  className={`p-1.5 rounded-lg text-[9px] group relative overflow-hidden border-l-4 ${isLeave ? 'bg-rose-50 border-rose-500 ring-1 ring-rose-200' : `${color.bg} ${color.border} ring-1 ring-black/5`}`}
+>
+<div className="flex items-start justify-between gap-1">
+<p
+  className={`font-semibold text-sm truncate leading-tight ${isLeave ? 'text-rose-900' : color.text}`}
+>
+  {s.employeeName || (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown')}
+</p>
+  {isLeave && <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0 shadow-sm" />}
+</div>
+                              <p className={`font-semibold opacity-90 text-[9px] ${isLeave ? 'text-rose-700' : color.muted}`}>
+  {isLeave ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime?.slice(0,5)} - ${s.endTime?.slice(0,5)}`}
+</p>
+                              {!isLeave && <div className={`absolute right-0 top-0 bottom-0 w-1 ${color.bar} transform translate-x-full group-hover:translate-x-0 transition-transform`} />}
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
                       </div>
                     );
                   })}
+                </div>
                 </div>
               </div>
             ) : (
@@ -428,15 +832,17 @@ export default function Schedule() {
                 )}
                 {filteredSchedules.map(s => {
                   const emp = employees.find(e => e.id === s.employeeId);
+                  const isLeave = s.status === 'On Leave';
+                  const color = getEmployeeColor(s.employeeId, s.employee || emp);
                   return (
-                    <div key={s.id} className="card card-hover flex flex-col sm:flex-row sm:items-center gap-4 group">
+                    <div key={s.id} className={`card card-hover flex flex-col sm:flex-row sm:items-center gap-4 group border-l-4 ${isLeave ? 'border-rose-200 bg-rose-50/70 border-l-rose-500' : `${color.bg} ${color.border}`}`}>
                       <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-header flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-soft">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-soft ${isLeave ? 'bg-rose-500' : color.bar}`}>
                           {(s.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : '?'))).split(' ').map(w => w[0]).join('').slice(0, 2)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="font-bold text-gray-800 text-sm truncate">{s.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown'))}</p>
+                            <p className={`font-bold text-sm truncate ${isLeave ? 'text-rose-900' : color.text}`}>{s.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown'))}</p>
                             {viewMode !== 'day' && <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-bold rounded-lg">{formatDate(s.date)}</span>}
                           </div>
                           <p className="text-[11px] text-gray-500 font-medium">{emp?.jobTitle || s.employee?.jobTitle} • {s.branch}</p>
@@ -445,23 +851,72 @@ export default function Schedule() {
                       <div className="flex items-center justify-between sm:justify-end gap-5 pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-50">
                         <div className="flex items-center gap-3">
                           <div className="flex flex-col items-end">
-                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Working Hours</p>
+                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{s.status === 'On Leave' ? 'Leave Status' : 'Working Hours'}</p>
                             <div className="flex items-center gap-1.5 text-xs text-gray-700 font-bold">
-                              <Clock size={12} className="text-primary" />
-                              <span>{s.startTime} - {s.endTime}</span>
+                              {isLeave ? <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-sm" /> : <Clock size={12} className="text-primary" />}
+                              <span>
+  {s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime?.slice(0,5)} - ${s.endTime?.slice(0,5)}`}
+</span>
                             </div>
                           </div>
                         </div>
-                        {!['dentist', 'assistant'].includes(user?.role) && (
-                          <button onClick={() => handleDelete(s.id)} className="w-9 h-9 rounded-xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all flex items-center justify-center border border-transparent hover:border-rose-100">
-                            <Trash2 size={16} />
-                          </button>
+                        {!s.isLeaveOnly && (
+                          <div className="flex items-center gap-2">
+                            {canUpdate && (
+                              <button onClick={() => setEditSchedule(s)} className="w-9 h-9 rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center border border-transparent hover:border-blue-100" title="Edit Schedule">
+                                <Edit2 size={16} />
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button onClick={() => handleDelete(s.id)} className="w-9 h-9 rounded-xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all flex items-center justify-center border border-transparent hover:border-rose-100" title="Delete Schedule">
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
                   );
                 })}
               </>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Assigned Hours</p>
+                <h3 className="font-black text-gray-800 text-base tracking-tight">Employee Weekly & Monthly Totals</h3>
+              </div>
+              <p className="text-xs font-semibold text-gray-500">
+                Week: {formatDate(weekRange.start)} to {formatDate(weekRange.end)}
+              </p>
+            </div>
+            {employeeHourSummary.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm font-semibold text-gray-400">
+                No working hours assigned for the selected filters.
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                <div className="grid grid-cols-[1fr_76px_86px] sm:grid-cols-[1fr_110px_110px] gap-3 px-4 sm:px-5 py-3 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                  <span>Employee</span>
+                  <span className="text-right">This Week</span>
+                  <span className="text-right">This Month</span>
+                </div>
+                {employeeHourSummary.map(row => {
+                  const color = getEmployeeColor(row.employeeId, row.employee);
+                  return (
+                    <div key={row.employeeId} className="grid grid-cols-[1fr_76px_86px] sm:grid-cols-[1fr_110px_110px] gap-3 px-4 sm:px-5 py-3 items-center">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`h-3 w-3 rounded-full ${color.bar} flex-shrink-0 shadow-sm`} />
+                        <span className={`font-bold text-sm truncate ${color.text}`}>{row.name}</span>
+                      </div>
+                      <span className="text-right text-sm font-black text-gray-800">{formatHours(row.weekHours)} h</span>
+                      <span className="text-right text-sm font-black text-primary">{formatHours(row.monthHours)} h</span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>

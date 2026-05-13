@@ -90,7 +90,10 @@ function ViewBalanceModal({ item, onClose }) {
 }
 
 export default function LeaveBalanceManagement() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
+  const canUpdate = checkPermission('leave_balance', 'update');
+  const canDelete = checkPermission('leave_balance', 'delete');
+  const canRunMonthlyUpdate = user?.role === 'admin' && canUpdate;
   const [balances, setBalances] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +104,12 @@ export default function LeaveBalanceManagement() {
   const [editFormData, setEditFormData] = useState(null);
   const [viewItem, setViewItem] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const canEditLeaveType = (typeId) => {
+    if (!canUpdate) return false;
+    if (typeId === 'annual') return user?.role === 'admin';
+    return true;
+  };
 
   useEffect(() => {
     fetchData();
@@ -168,7 +177,7 @@ export default function LeaveBalanceManagement() {
 
   const runMonthlyUpdate = async () => {
     try {
-      if (!window.confirm("Are you sure you want to run the monthly leave update? This will add 2.5 days to Annual and 1.25 days to Sick for all active employees.")) return;
+      if (!window.confirm("Are you sure you want to run the monthly leave update? This will add 2.5 days to Annual Leave for all active employees. Sick Leave is controlled manually.")) return;
       await API.post('/leave-balance/monthly-update');
       fetchData();
       alert('Monthly update completed successfully');
@@ -181,7 +190,7 @@ export default function LeaveBalanceManagement() {
     const numValue = parseFloat(value) || 0;
     setEditFormData(prev => {
       const updatedType = { ...prev[type], [field]: numValue };
-      updatedType.remaining = Math.max(0, updatedType.total - updatedType.used);
+      updatedType.remaining = updatedType.total - updatedType.used;
       return { ...prev, [type]: updatedType };
     });
   };
@@ -202,6 +211,67 @@ export default function LeaveBalanceManagement() {
     return balances.find(b => b.employeeId === user?.id) || null;
   }, [balances, user]);
 
+  const myLeaveBalancesSection = (
+    <div className="card p-6 border-none shadow-sm bg-white">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-black text-gray-800 tracking-tight leading-none">My Leave Balances</h2>
+          <p className="text-sm text-gray-500 mt-1.5 font-medium">Track your available time off and history</p>
+        </div>
+      </div>
+
+      {myBalance ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-xl transition-all duration-500">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700" />
+            <div className="relative z-10">
+              <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4 block">Annual Leave</span>
+              <div className="flex items-baseline gap-2 mb-6">
+                <span className="text-6xl font-black text-gray-800 tracking-tighter">{myBalance.annual.remaining}</span>
+                <span className="text-xl font-bold text-gray-300">days</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-400">
+                <Clock size={14} className="text-primary" />
+                <span className="text-xs font-bold uppercase tracking-widest opacity-60">Accrues 2.5 days/month</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-xl transition-all duration-500">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700" />
+            <div className="relative z-10 border-t-4 border-rose-500 pt-1">
+              <div className="mb-4">
+                <span className="text-[10px] font-black text-rose-500 uppercase tracking-[0.2em] block">Sick Leave</span>
+                <p className="text-[10px] font-bold text-gray-400 mt-1">Medical sick leave certificate is required.</p>
+              </div>
+              <div className="flex items-baseline gap-2 mb-6">
+                <span className="text-6xl font-black text-gray-800 tracking-tighter">{myBalance.sick.remaining}</span>
+                <span className="text-xl font-bold text-gray-300">days</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-400">
+                <Clock size={14} className="text-rose-500" />
+                <span className="text-xs font-bold uppercase tracking-widest opacity-60">Controlled manually</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gray-50/80 backdrop-blur-md rounded-[2rem] p-6 border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center relative overflow-hidden group">
+            <div className="w-16 h-16 rounded-2xl bg-white shadow-inner flex items-center justify-center text-gray-400 mb-4 group-hover:scale-110 transition-transform duration-500">
+              <Calendar size={32} />
+            </div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Next Auto-Increment</p>
+            <h3 className="text-2xl font-black text-gray-800 tracking-tight">1st of each month</h3>
+          </div>
+        </div>
+      ) : (
+        <div className="card bg-gray-50 border-dashed border-2 border-gray-200 p-10 text-center">
+          <Info className="mx-auto text-gray-300 mb-3" size={40} />
+          <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No balance records found for your account</p>
+        </div>
+      )}
+    </div>
+  );
+
   if (currentView === 'edit') {
     return (
       <div className="space-y-6 animate-fade-in pb-10">
@@ -220,7 +290,7 @@ export default function LeaveBalanceManagement() {
           </div>
           <button 
              onClick={handleSaveBalance}
-             className="bg-[#F59E0B] hover:bg-[#D97706] text-white px-10 py-3.5 rounded-2xl shadow-lg shadow-orange-500/20 flex items-center gap-2 font-black text-sm transition-all active:scale-95"
+             className="bg-[#F58220] hover:bg-[#D97706] text-white px-10 py-3.5 rounded-2xl shadow-lg shadow-orange-500/20 flex items-center gap-2 font-black text-sm transition-all active:scale-95"
           >
             <Save size={18} /> Save Balances
           </button>
@@ -237,10 +307,13 @@ export default function LeaveBalanceManagement() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {LEAVE_TYPES.map(type => (
-              <div key={type.id} className="bg-white rounded-3xl p-6 border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300">
+              <div key={type.id} className={`bg-white rounded-3xl p-6 border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 ${!canEditLeaveType(type.id) ? 'opacity-60' : ''}`}>
                 <div className="flex items-center gap-3 mb-6">
                   <div className={`w-1.5 h-6 rounded-full ${ACCENT_COLORS[type.color]}`} />
-                  <h3 className="font-extrabold text-gray-800 text-sm tracking-tight">{type.label}</h3>
+                  <div className="flex-1">
+                    <h3 className="font-extrabold text-gray-800 text-sm tracking-tight">{type.label}</h3>
+                    {!canEditLeaveType(type.id) && <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mt-1">Read only</p>}
+                  </div>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -251,7 +324,8 @@ export default function LeaveBalanceManagement() {
                       step="any"
                       value={editFormData[type.id].total} 
                       onChange={(e) => updateEditForm(type.id, 'total', e.target.value)}
-                      className="w-full px-3 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                      disabled={!canEditLeaveType(type.id)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -261,14 +335,16 @@ export default function LeaveBalanceManagement() {
                       step="any"
                       value={editFormData[type.id].used} 
                       onChange={(e) => updateEditForm(type.id, 'used', e.target.value)}
-                      className="w-full px-3 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all"
+                      disabled={!canEditLeaveType(type.id)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-white transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between pt-5 border-t border-gray-50">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Remaining:</span>
-                  <span className={`text-2xl font-black ${editFormData[type.id].remaining > 0 ? 'text-[#0EA5A4]' : 'text-gray-300'} transition-colors`}>
+                  <span className={`text-2xl font-black ${editFormData[type.id].remaining >= 0 ? 'text-[#2C4697]' : 'text-red-500'}
+ transition-colors`}>
                     {editFormData[type.id].remaining}
                   </span>
                 </div>
@@ -301,7 +377,7 @@ export default function LeaveBalanceManagement() {
             <p className="text-sm text-gray-500 mt-1.5 font-medium">Manage and adjust leave balances for all employees</p>
           </div>
         </div>
-        {user?.role === 'admin' && (
+        {canRunMonthlyUpdate && (
           <button 
             onClick={runMonthlyUpdate}
             className="btn-primary flex items-center justify-center gap-2 px-6 py-3 rounded-2xl shadow-xl shadow-primary/20 font-bold text-sm transform transition-transform hover:scale-105 active:scale-95 whitespace-nowrap"
@@ -311,8 +387,10 @@ export default function LeaveBalanceManagement() {
         )}
       </div>
 
+      {myLeaveBalancesSection}
+
       {/* Top Selector Card */}
-      {user?.role !== 'manager' && (
+      {canUpdate && (
         <div className="card p-6 border-none shadow-sm bg-white overflow-visible">
           <h2 className="text-sm font-bold text-gray-800 mb-4">Edit Employee Balances</h2>
           <div className="space-y-1.5 relative w-full">
@@ -381,12 +459,12 @@ export default function LeaveBalanceManagement() {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-black ${b.annual.remaining > 0 ? 'bg-primary text-white shadow-lg shadow-primary/20 animate-pulse-slow' : 'bg-gray-100 text-gray-400'}`}>
+                    <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-black ${b.annual.remaining > 0 ? 'bg-blue-50 text-[#1C3756] border border-blue-100 shadow-sm' : 'bg-gray-100 text-gray-400'}`}>
                       {b.annual.remaining}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black ${b.sick.remaining > 0 ? 'bg-rose-500 text-white shadow-lg shadow-rose-200' : 'bg-gray-50 text-gray-300'}`}>
+                    <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-black ${b.sick.remaining > 0 ? 'bg-rose-50 text-rose-700 border border-rose-100 shadow-sm' : 'bg-gray-100 text-gray-400'}`}>
                       {b.sick.remaining}
                     </span>
                   </td>
@@ -404,7 +482,7 @@ export default function LeaveBalanceManagement() {
                       >
                         <Eye size={15} />
                       </button>
-                      {user?.role !== 'manager' && (
+                      {canUpdate && (
                         <button
                           onClick={() => handleEdit(b.employeeId)}
                           className="w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 hover:text-secondary hover:bg-orange-50 transition-all"
@@ -413,7 +491,7 @@ export default function LeaveBalanceManagement() {
                           <Edit2 size={15} />
                         </button>
                       )}
-                      {user?.role !== 'manager' && (
+                      {canDelete && (
                         <button
                           onClick={() => setConfirmDelete(b.employeeId)}
                           className="w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all"
@@ -452,7 +530,7 @@ export default function LeaveBalanceManagement() {
                    >
                      <Eye size={15} />
                    </button>
-                   {user?.role !== 'manager' && (
+                   {canUpdate && (
                      <button
                        onClick={() => handleEdit(b.employeeId)}
                        className="w-9 h-9 rounded-xl bg-gray-50 text-gray-400 hover:text-secondary hover:bg-orange-50 flex items-center justify-center border border-gray-100 transition-all"
@@ -461,7 +539,7 @@ export default function LeaveBalanceManagement() {
                        <Edit2 size={15} />
                      </button>
                    )}
-                   {user?.role !== 'manager' && (
+                   {canDelete && (
                      <button
                        onClick={() => setConfirmDelete(b.employeeId)}
                        className="w-9 h-9 rounded-xl bg-gray-50 text-gray-400 hover:text-rose-500 hover:bg-rose-50 flex items-center justify-center border border-gray-100 transition-all"
@@ -508,63 +586,6 @@ export default function LeaveBalanceManagement() {
         </div>
       </div>
 
-      {/* My Leave Balances Section */}
-      <div className="pt-4 border-t border-dashed border-gray-200">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-black text-gray-800 tracking-tight leading-none">My Leave Balances</h1>
-            <p className="text-sm text-gray-500 mt-1.5 font-medium">Track your available time off and history</p>
-          </div>
-
-        </div>
-
-        {myBalance ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-xl transition-all duration-500">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700" />
-              <div className="relative z-10">
-                <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4 block">Annual Leave</span>
-                <div className="flex items-baseline gap-2 mb-6">
-                  <span className="text-6xl font-black text-gray-800 tracking-tighter">{myBalance.annual.remaining}</span>
-                  <span className="text-xl font-bold text-gray-300">days</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-400">
-                  <Clock size={14} className="text-primary" />
-                  <span className="text-xs font-bold uppercase tracking-widest opacity-60">Accrues 2.5 days/month</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm relative overflow-hidden group hover:shadow-xl transition-all duration-500">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700" />
-              <div className="relative z-10 border-t-4 border-rose-500 pt-1">
-                <span className="text-[10px] font-black text-rose-500 uppercase tracking-[0.2em] mb-4 block">Sick Leave</span>
-                <div className="flex items-baseline gap-2 mb-6">
-                  <span className="text-6xl font-black text-gray-800 tracking-tighter">{myBalance.sick.remaining}</span>
-                  <span className="text-xl font-bold text-gray-300">days</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-400">
-                  <Clock size={14} className="text-rose-500" />
-                  <span className="text-xs font-bold uppercase tracking-widest opacity-60">Accrues 1.25 days/month</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-50/80 backdrop-blur-md rounded-[2.5rem] p-8 border border-gray-100 shadow-sm flex flex-col items-center justify-center text-center relative overflow-hidden group">
-               <div className="w-16 h-16 rounded-2xl bg-white shadow-inner flex items-center justify-center text-gray-400 mb-4 group-hover:scale-110 transition-transform duration-500">
-                  <Calendar size={32} />
-               </div>
-               <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Next Auto-Increment</p>
-               <h3 className="text-2xl font-black text-gray-800 tracking-tight">April 1, 2026</h3>
-            </div>
-          </div>
-        ) : (
-          <div className="card bg-gray-50 border-dashed border-2 border-gray-200 p-10 text-center">
-            <Info className="mx-auto text-gray-300 mb-3" size={40} />
-            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No balance records found for your account</p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

@@ -1,8 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Wallet, Plus, Search, DollarSign, Users, Download, Eye, Upload, CheckCircle } from 'lucide-react';
+import { Wallet, Plus, Search, DollarSign, Users, Download, Eye, Upload, CheckCircle, FileSpreadsheet } from 'lucide-react';
 import API from '../api';
 import { exportToCSV } from '../utils/exportUtils';
 import ConfirmModal from '../components/ConfirmModal';
+
+const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
 
 export default function Salaries() {
   const [search, setSearch] = useState('');
@@ -53,7 +58,19 @@ export default function Salaries() {
   );
 
   const handleExport = () => {
-    exportToCSV(salaryData, 'Payroll_March_2026');
+    const exportRows = salaryData.map(s => ({
+      ID: s.id,
+      Employee: s.name,
+      Role: s.role,
+      Title: s.title,
+      'Base Salary': formatBHD(s.baseSalary),
+      Allowances: formatBHD(s.allowances),
+      Deductions: formatBHD(s.deductions),
+      'Net Pay': formatBHD((s.baseSalary || 0) + (s.allowances || 0) - (s.deductions || 0)),
+      Status: s.status,
+      'Last Paid': s.lastPaid,
+    }));
+    exportToCSV(exportRows, 'Payroll_March_2026');
   };
 
   const handleImportClick = () => {
@@ -83,8 +100,8 @@ export default function Salaries() {
           <button onClick={handleImportClick} className="btn-outline gap-2 flex-1 sm:flex-none justify-center py-2 text-sm border-gray-200">
             <Upload size={15} /> Import
           </button>
-          <button onClick={handleExport} className="btn-outline gap-2 flex-1 sm:flex-none justify-center py-2 text-sm border-gray-200">
-            <Download size={15} /> Export
+          <button onClick={handleExport} className="gap-2 flex-1 sm:flex-none justify-center py-2 px-4 text-sm rounded-xl btn-export-excel flex items-center font-bold">
+            <FileSpreadsheet size={15} /> Export
           </button>
           <button 
             onClick={() => setShowProcessModal(true)} 
@@ -109,7 +126,7 @@ export default function Salaries() {
       <ConfirmModal 
         isOpen={showProcessModal}
         title="Process March 2026 Payroll"
-        message={`Are you sure you want to process the payroll? Total amount to be transferred is BHD ${salaryData.reduce((acc, curr) => acc + curr.baseSalary + curr.allowances - curr.deductions, 0).toLocaleString()} for ${salaryData.length} employees.`}
+        message={`Are you sure you want to process the payroll? Total amount to be transferred is BHD ${formatBHD(salaryData.reduce((acc, curr) => acc + curr.baseSalary + curr.allowances - curr.deductions, 0))} for ${salaryData.length} employees.`}
         onConfirm={() => {
           setShowProcessModal(false);
           setIsProcessing(true);
@@ -157,7 +174,7 @@ export default function Salaries() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="card bg-gradient-to-br from-primary to-teal-400 text-white border-none">
           <p className="text-xs font-medium opacity-80 mb-1">Total Monthly Payroll</p>
-          <p className="text-2xl font-bold font-heading">BHD {salaryData.reduce((acc, curr) => acc + curr.baseSalary + curr.allowances - curr.deductions, 0).toLocaleString()}</p>
+          <p className="text-2xl font-bold font-heading">BHD {formatBHD(salaryData.reduce((acc, curr) => acc + curr.baseSalary + curr.allowances - curr.deductions, 0))}</p>
           <div className="mt-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider bg-white/20 w-fit px-2 py-1 rounded-lg">
             <Wallet size={12} /> March 2026 Batch
           </div>
@@ -221,10 +238,10 @@ export default function Salaries() {
                     <p className="text-[10px] text-gray-500">{s.title}</p>
                   </td>
                   <td className="hidden lg:table-cell"><span className="badge badge-gray capitalize text-[10px]">{s.role}</span></td>
-                  <td className="text-xs font-medium">BHD {(s.baseSalary || 0).toLocaleString()}</td>
-                  <td className="text-xs font-medium text-success hidden sm:table-cell">+ BHD {(s.allowances || 0).toLocaleString()}</td>
-                  <td className="text-xs font-medium text-danger hidden sm:table-cell">- BHD {(s.deductions || 0).toLocaleString()}</td>
-                  <td className="text-xs font-bold text-gray-800 whitespace-nowrap">BHD {((s.baseSalary || 0) + (s.allowances || 0) - (s.deductions || 0)).toLocaleString()}</td>
+                  <td className="text-xs font-medium">BHD {formatBHD(s.baseSalary)}</td>
+                  <td className="text-xs font-medium text-success hidden sm:table-cell">+ BHD {formatBHD(s.allowances)}</td>
+                  <td className="text-xs font-medium text-danger hidden sm:table-cell">- BHD {formatBHD(s.deductions)}</td>
+                  <td className="text-xs font-bold text-gray-800 whitespace-nowrap">BHD {formatBHD((s.baseSalary || 0) + (s.allowances || 0) - (s.deductions || 0))}</td>
                   <td><span className="badge badge-success text-[10px]">Paid</span></td>
                   <td>
                     <button className="btn-icon w-8 h-8 rounded-lg hover:bg-slate-50">

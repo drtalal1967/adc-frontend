@@ -4,6 +4,11 @@ import { FileText, Download, Filter, BarChart3, TrendingUp, PieChart as PieChart
 import API from '../api';
 import jsPDF from 'jspdf';
 
+const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
+
 // ─── PDF Helpers ──────────────────────────────────────────────────────────────
 
 function drawHeader(doc, title, subtitle, color) {
@@ -24,6 +29,18 @@ function drawTable(doc, headers, rows, colWidths, startY, headerColor) {
   const [r, g, b] = headerColor || [30, 58, 138];
   const startX = 14;
   let y = startY;
+  const cellPadding = 2;
+  const fitText = (value, width) => {
+    const text = String(value ?? '-');
+    const maxWidth = Math.max(4, width - cellPadding * 2);
+    if (doc.getTextWidth(text) <= maxWidth) return text;
+
+    let trimmed = text;
+    while (trimmed.length > 1 && doc.getTextWidth(`${trimmed}...`) > maxWidth) {
+      trimmed = trimmed.slice(0, -1);
+    }
+    return `${trimmed}...`;
+  };
 
   // Header row
   doc.setFillColor(r, g, b);
@@ -31,12 +48,16 @@ function drawTable(doc, headers, rows, colWidths, startY, headerColor) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
-  let x = startX + 2;
-  headers.forEach((h, i) => { doc.text(h, x, y); x += colWidths[i]; });
+  let x = startX;
+  headers.forEach((h, i) => {
+    doc.text(fitText(h, colWidths[i]), x + cellPadding, y);
+    x += colWidths[i];
+  });
   y += 6;
 
   // Data rows
   doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
   rows.forEach((row, idx) => {
     if (y > 270) { doc.addPage(); y = 20; }
     if (idx % 2 === 0) {
@@ -44,9 +65,9 @@ function drawTable(doc, headers, rows, colWidths, startY, headerColor) {
       doc.rect(startX, y - 5, 182, 7, 'F');
     }
     doc.setTextColor(30, 41, 59);
-    x = startX + 2;
+    x = startX;
     row.forEach((val, i) => {
-      doc.text(String(val ?? '—').slice(0, 30), x, y);
+      doc.text(fitText(val, colWidths[i]), x + cellPadding, y);
       x += colWidths[i];
     });
     y += 7;
@@ -81,9 +102,9 @@ export default function Reports() {
     doc.text('Financial Summary', 14, 44);
 
     const summary = [
-      ['Total Revenue (YTD)', `BHD ${totalRev.toLocaleString()}`],
-      ['Total Expenses (YTD)', `BHD ${totalExp.toLocaleString()}`],
-      ['Net Profit (YTD)', `BHD ${netProfit.toLocaleString()}`],
+      ['Total Revenue (YTD)', `BHD ${formatBHD(totalRev)}`],
+      ['Total Expenses (YTD)', `BHD ${formatBHD(totalExp)}`],
+      ['Net Profit (YTD)', `BHD ${formatBHD(netProfit)}`],
     ];
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
@@ -101,7 +122,7 @@ export default function Reports() {
     const rows = data.revenue.map(r => {
       const total = (r.expenses || 0) + (r.salaries || 0);
       const profit = (r.revenue || 0) - total;
-      return [r.month, (r.revenue || 0).toLocaleString(), total.toLocaleString(), profit.toLocaleString()];
+      return [r.month, formatBHD(r.revenue), formatBHD(total), formatBHD(profit)];
     });
 
     drawTable(doc,
@@ -216,9 +237,9 @@ export default function Reports() {
     doc.text('Expense Summary', 14, 44);
 
     const summary = [
-      ['Total Expenses', `BHD ${totalAmount.toLocaleString()}`],
-      ['Paid', `BHD ${paid.toLocaleString()}`],
-      ['Outstanding / Unpaid', `BHD ${unpaid.toLocaleString()}`],
+      ['Total Expenses', `BHD ${formatBHD(totalAmount)}`],
+      ['Paid', `BHD ${formatBHD(paid)}`],
+      ['Outstanding / Unpaid', `BHD ${formatBHD(unpaid)}`],
       ['Total Records', String(data.expenses.length)],
     ];
     doc.setFontSize(10);
@@ -236,11 +257,11 @@ export default function Reports() {
 
     const rows = data.expenses.map(e => [
       e.expenseDate?.split('T')[0], e.vendor?.name || 'Vendor', e.category || 'General',
-      `#${e.invoiceNumber || 'N/A'}`, `BHD ${parseFloat(e.amount || 0).toLocaleString()}`, e.paymentStatus
+      `#${e.invoiceNumber || 'N/A'}`, `BHD ${formatBHD(e.amount)}`, e.paymentStatus
     ]);
     drawTable(doc,
       ['Date', 'Vendor', 'Category', 'Invoice', 'Amount', 'Status'],
-      rows, [22, 36, 30, 28, 28, 18], y + 18, [249, 115, 22]
+      rows, [22, 50, 36, 26, 28, 20], y + 18, [249, 115, 22]
     );
 
     doc.save('expense-breakdown-report.pdf');
@@ -260,9 +281,9 @@ export default function Reports() {
     const totalExp = data.revenue.reduce((a, r) => a + (r.expenses || 0) + (r.salaries || 0), 0);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Total Revenue (YTD): BHD ${totalRev.toLocaleString()}`, 14, 52);
-    doc.text(`Total Expenses (YTD): BHD ${totalExp.toLocaleString()}`, 14, 60);
-    doc.text(`Net Profit (YTD): BHD ${(totalRev - totalExp).toLocaleString()}`, 14, 68);
+    doc.text(`Total Revenue (YTD): BHD ${formatBHD(totalRev)}`, 14, 52);
+    doc.text(`Total Expenses (YTD): BHD ${formatBHD(totalExp)}`, 14, 60);
+    doc.text(`Net Profit (YTD): BHD ${formatBHD(totalRev - totalExp)}`, 14, 68);
 
     // Page 2 — Employees
     doc.addPage();
@@ -282,7 +303,7 @@ export default function Reports() {
     doc.addPage();
     drawHeader(doc, 'Expense Records', 'Financial Data', [249, 115, 22]);
     doc.setTextColor(30, 41, 59);
-    const expRows = data.expenses.map(e => [e.expenseDate?.split('T')[0], e.vendor?.name || '.', e.category || '.', `BHD ${parseFloat(e.amount || 0).toLocaleString()}`, e.paymentStatus]);
+    const expRows = data.expenses.map(e => [e.expenseDate?.split('T')[0], e.vendor?.name || '.', e.category || '.', `BHD ${formatBHD(e.amount)}`, e.paymentStatus]);
     drawTable(doc, ['Date', 'Vendor', 'Category', 'Amount', 'Status'], expRows, [28, 40, 34, 34, 24], 40, [249, 115, 22]);
 
     doc.save('clinic-complete-data-export.pdf');
@@ -365,8 +386,8 @@ export default function Reports() {
           <h1 className="section-title text-xl md:text-2xl">Reports &amp; Analytics</h1>
           <p className="section-subtitle text-xs md:text-sm">Generate and download clinic performance reports</p>
         </div>
-        <button onClick={exportAllData} className="btn-primary w-full sm:w-auto justify-center py-2 text-sm">
-          <Download size={15} /> Export All Data
+        <button onClick={exportAllData} className="w-full sm:w-auto justify-center py-2 px-4 text-sm rounded-xl btn-export-pdf font-bold flex items-center gap-2 shadow-md">
+          <FileText size={15} /> Export All Data
         </button>
       </div>
 
@@ -380,9 +401,9 @@ export default function Reports() {
             <p className="text-xs text-gray-500 mb-4">{report.type} • {report.date}</p>
             <button
               onClick={report.onDownload}
-              className="text-primary text-xs font-semibold flex items-center gap-1 hover:underline"
+              className="text-rose-600 text-xs font-semibold flex items-center gap-1 hover:underline"
             >
-              <Download size={12} /> Download PDF
+              <FileText size={12} /> Download PDF
             </button>
           </div>
         ))}
@@ -401,7 +422,7 @@ export default function Reports() {
               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
               <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
               <Legend verticalAlign="top" align="right" iconType="circle" />
-              <Line type="monotone" dataKey="revenue" stroke="#2F5D90" strokeWidth={3} dot={{ r: 4, fill: '#2F5D90' }} activeDot={{ r: 6 }} />
+              <Line type="monotone" dataKey="revenue" stroke="#2C4697" strokeWidth={3} dot={{ r: 4, fill: '#2C4697' }} activeDot={{ r: 6 }} />
               <Line type="monotone" dataKey="expenses" stroke="#F58220" strokeWidth={3} dot={{ r: 4, fill: '#F58220' }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
@@ -418,7 +439,7 @@ export default function Reports() {
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
               <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} cursor={{ fill: '#f8fafc' }} />
-              <Bar dataKey="value" fill="#2F5D90" radius={[4, 4, 0, 0]} barSize={40} />
+              <Bar dataKey="value" fill="#2C4697" radius={[4, 4, 0, 0]} barSize={40} />
             </BarChart>
           </ResponsiveContainer>
         </div>

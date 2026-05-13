@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import * as Icons from 'lucide-react';
-import { User, Lock, Bell, Database, Globe, Shield, CreditCard, HelpCircle, X, Camera, Save, Download, RefreshCw, Key, ShieldCheck, Mail, MapPin, Clock } from 'lucide-react';
+import { User, Lock, Bell, Database, Globe, Shield, CreditCard, HelpCircle, X, Camera, Save, Download, FileSpreadsheet, RefreshCw, Key, ShieldCheck, Mail, MapPin, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import API, { BACKEND_URL } from '../api';
 import { exportToCSV } from '../utils/exportUtils';
@@ -12,6 +12,46 @@ const Icon = ({ name, size = 18, className = '' }) => {
   const LucideIcon = Icons[name];
   if (!LucideIcon) return null;
   return <LucideIcon size={size} className={className} />;
+};
+
+const PERMISSION_MODULES = [
+  'dashboard',
+  'lab_cases',
+  'expenses',
+  'laboratories',
+  'vendors',
+  'financials',
+  'payments',
+  'employees',
+  'schedule',
+  'leaves',
+  'leave_balance',
+  'reports',
+  'reminders',
+  'documents',
+  'work_schedule',
+  'salaries',
+  'settings',
+];
+
+const PERMISSION_LABELS = {
+  dashboard: 'Dashboard',
+  lab_cases: 'Lab Cases',
+  expenses: 'Expenses',
+  laboratories: 'Laboratories',
+  vendors: 'Vendors',
+  financials: 'Financials',
+  payments: 'All Payments',
+  employees: 'Employees',
+  schedule: 'Schedule Setup',
+  leaves: 'Leave Requests',
+  leave_balance: 'Leave Balance',
+  reports: 'Reports',
+  reminders: 'Reminders',
+  documents: 'Documents',
+  work_schedule: 'Work Schedule',
+  salaries: 'Salaries',
+  settings: 'Settings',
 };
 
 function SettingModal({ title, subtitle, onClose, children }) {
@@ -43,7 +83,7 @@ export default function Settings() {
   const [backupLoading, setBackupLoading] = useState(false);
   const fileInputRef = useRef(null);
 
-  const isAdmin = ['ADMIN', 'MANAGER'].includes(user?.role?.toUpperCase());
+  const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
 
   const handleDownloadBackup = async () => {
     setBackupLoading(true);
@@ -145,8 +185,11 @@ export default function Settings() {
       const data = await resp.json();
       
       // Transform API array to UI object structure
-      const mapped = {};
-      data.forEach(p => {
+      const mapped = PERMISSION_MODULES.reduce((acc, module) => {
+        acc[module] = [];
+        return acc;
+      }, {});
+      data.filter(p => PERMISSION_MODULES.includes(p.module)).forEach(p => {
         const pList = [];
         if (p.canView) pList.push('view');
         if (p.canCreate) pList.push('create');
@@ -523,12 +566,12 @@ export default function Settings() {
             <button
               onClick={handleDownloadBackup}
               disabled={backupLoading}
-              className="w-full py-4 rounded-2xl bg-primary text-white font-black text-sm uppercase tracking-widest shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full py-4 rounded-2xl btn-export-excel font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-200 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {backupLoading ? (
                 <><RefreshCw size={18} className="animate-spin" /> Preparing Backup...</>
               ) : (
-                <><Download size={18} /> Download Full Backup (Excel)</>
+                <><FileSpreadsheet size={18} /> Download Full Backup (Excel)</>
               )}
             </button>
 
@@ -655,7 +698,7 @@ export default function Settings() {
                 {permissions[activeRole.id] && Object.keys(permissions[activeRole.id]).map((module) => (
                   <div key={module} className="p-4 rounded-3xl bg-slate-50 border border-slate-100">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-black text-slate-800 uppercase tracking-widest capitalize">{module.replace(/([A-Z]|_)/g, ' $1')}</p>
+                      <p className="text-xs font-black text-slate-800 uppercase tracking-widest capitalize">{PERMISSION_LABELS[module] || module.replace(/([A-Z]|_)/g, ' $1')}</p>
                       <button 
                         type="button"
                         onClick={() => {

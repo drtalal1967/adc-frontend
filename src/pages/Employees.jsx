@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { BRANCHES } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Search, Filter, Download, Eye, Edit2, Trash2, CheckCircle, User, Activity, MapPin, Hash, Phone, Mail, Clock, Calendar, X, AlertCircle, Users, AlertTriangle, Upload, ChevronDown, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, Download, Eye, Edit2, Trash2, CheckCircle, User, Activity, MapPin, Hash, Phone, Mail, Clock, Calendar, X, AlertCircle, Users, AlertTriangle, Upload, ChevronDown, FileText, FileSpreadsheet, Image as ImageIcon, Loader2 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import { exportToCSV } from '../utils/exportUtils';
 import FileUpload from '../components/FileUpload';
@@ -9,8 +9,36 @@ import * as XLSX from 'xlsx';
 import API, { BACKEND_URL } from '../api';
 import FilePreviewModal from '../components/FilePreviewModal';
 
-const ROLES = ['All', 'admin', 'manager', 'secretary', 'dentist', 'assistant', 'accountant'];
-const JOB_TITLES = ['All', 'Consultant', 'Specialist', 'General Dentist', 'Dental Assistant', 'Secretary', 'Accountant', 'Cleaner', 'Driver'];
+const ROLES = ['All Roles', 'admin', 'manager', 'secretary', 'dentist', 'assistant', 'accountant'];
+const JOB_TITLES = ['All Job-Titles', 'Consultant', 'Specialist', 'General Dentist', 'Dental Assistant', 'Secretary', 'Accountant', 'Cleaner', 'Driver'];
+
+const escapeExcelText = (value = '') => String(value).replace(/"/g, '""');
+
+const normalizeFileUrl = (url = '') => (
+  url && url.startsWith('http') ? url : (url ? `${BACKEND_URL}${url.startsWith('/') ? url : `/${url}`}` : '')
+);
+
+const setExcelLinkCell = (worksheet, cellRef, label, url) => {
+  worksheet[cellRef] = {
+    t: 's',
+    v: label,
+    f: `HYPERLINK("${escapeExcelText(url)}","${escapeExcelText(label)}")`,
+    l: { Target: url, Tooltip: url },
+    s: { font: { color: { rgb: '0563C1' }, underline: true } }
+  };
+};
+
+const styleExcelHeader = (worksheet, headers = []) => {
+  headers.forEach((_, columnIndex) => {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: columnIndex });
+    if (worksheet[cellRef]) {
+      worksheet[cellRef].s = {
+        ...(worksheet[cellRef].s || {}),
+        font: { ...(worksheet[cellRef].s?.font || {}), bold: true }
+      };
+    }
+  });
+};
 
 const ROLE_COLORS = {
   admin: 'bg-teal-100 text-teal-700',
@@ -21,10 +49,39 @@ const ROLE_COLORS = {
   accountant: 'bg-amber-100 text-amber-700',
 };
 
+const SCHEDULE_COLORS = [
+  { key: '', label: 'Automatic', swatch: 'bg-gray-400' },
+  { key: 'sky', label: 'Sky Blue', swatch: 'bg-sky-600' },
+  { key: 'emerald', label: 'Emerald', swatch: 'bg-emerald-600' },
+  { key: 'violet', label: 'Violet', swatch: 'bg-violet-600' },
+  { key: 'amber', label: 'Amber', swatch: 'bg-amber-600' },
+  { key: 'cyan', label: 'Cyan', swatch: 'bg-cyan-600' },
+  { key: 'fuchsia', label: 'Fuchsia', swatch: 'bg-fuchsia-600' },
+  { key: 'lime', label: 'Lime', swatch: 'bg-lime-600' },
+  { key: 'indigo', label: 'Indigo', swatch: 'bg-indigo-600' },
+  { key: 'orange', label: 'Orange', swatch: 'bg-orange-600' },
+  { key: 'teal', label: 'Teal', swatch: 'bg-teal-600' },
+  { key: 'purple', label: 'Purple', swatch: 'bg-purple-600' },
+  { key: 'pink', label: 'Pink', swatch: 'bg-pink-600' },
+  { key: 'red', label: 'Red', swatch: 'bg-red-600' },
+  { key: 'blue', label: 'Blue', swatch: 'bg-blue-600' },
+  { key: 'green', label: 'Green', swatch: 'bg-green-600' },
+  { key: 'yellow', label: 'Yellow', swatch: 'bg-yellow-600' },
+  { key: 'rose', label: 'Rose', swatch: 'bg-rose-600' },
+  { key: 'slate', label: 'Slate', swatch: 'bg-slate-600' },
+  { key: 'stone', label: 'Stone', swatch: 'bg-stone-600' },
+  { key: 'zinc', label: 'Zinc', swatch: 'bg-zinc-600' },
+  { key: 'neutral', label: 'Neutral', swatch: 'bg-neutral-600' },
+  { key: 'gray', label: 'Gray', swatch: 'bg-gray-600' },
+  { key: 'deepblue', label: 'Deep Blue', swatch: 'bg-blue-800' },
+  { key: 'deepgreen', label: 'Deep Green', swatch: 'bg-green-800' },
+  { key: 'deeporange', label: 'Deep Orange', swatch: 'bg-orange-800' },
+];
+
 function EmployeeModal({ item, onClose, onSave }) {
   const [form, setForm] = useState(item || {
     name: '', idNumber: '', jobTitle: '', licenseExpiry: '', visaExpiry: '', workPermitExpiry: '', startDate: '', endDate: '', role: '',
-    phone: '', email: '', password: '', documents: [], image: null
+    phone: '', email: '', password: '', documents: [], image: null, scheduleColor: ''
   });
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState(null); // raw File object for upload
@@ -226,6 +283,28 @@ function EmployeeModal({ item, onClose, onSave }) {
                   <option value="">Select system role...</option>
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
+              </div>
+              <div className="md:col-span-2 space-y-2">
+                <label className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
+                  <Activity size={13} className="text-primary" /> Schedule Color
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {SCHEDULE_COLORS.map(color => (
+                    <button
+                      type="button"
+                      key={color.key || 'automatic'}
+                      onClick={() => update('scheduleColor', color.key)}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
+                        (form.scheduleColor || '') === color.key
+                          ? 'border-primary bg-blue-50 text-primary shadow-sm'
+                          : 'border-gray-100 bg-gray-50 text-gray-600 hover:border-gray-200'
+                      }`}
+                    >
+                      <span className={`h-4 w-4 rounded-full ${color.swatch} ring-2 ring-white shadow-sm`} />
+                      {color.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -508,9 +587,9 @@ export default function Employees() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('All');
-  const [jobFilter, setJobFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [roleFilter, setRoleFilter] = useState('All Roles');
+  const [jobFilter, setJobFilter] = useState('All Job-Titles');
+  const [statusFilter, setStatusFilter] = useState('Active');
   const [modal, setModal] = useState(null); // 'add' or 'edit'
   const [editItem, setEditItem] = useState(null);
   const [viewItem, setViewItem] = useState(null);
@@ -527,7 +606,7 @@ export default function Employees() {
   const fetchEmployees = async () => {
     setLoading(true);
     try {
-      const res = await API.get('/employees');
+      const res = await API.get('/employees?includeFormer=true');
       const formattedData = res.data.map(emp => ({
         ...emp,
         name: `${emp.firstName}${emp.lastName && emp.lastName.trim() && emp.lastName !== '.' ? ' ' + emp.lastName : ''}`.trim(),
@@ -541,7 +620,8 @@ export default function Employees() {
         licenseExpiry: emp.licenseExpiry ? emp.licenseExpiry.split('T')[0] : '',
         visaExpiry: emp.visaExpiry ? emp.visaExpiry.split('T')[0] : '',
         workPermitExpiry: emp.workPermitExpiry ? emp.workPermitExpiry.split('T')[0] : '',
-        image: emp.profileImageUrl,
+        image: normalizeFileUrl(emp.profileImageUrl || ''),
+        scheduleColor: emp.scheduleColor || '',
         documents: emp.documents || []
       }));
       setEmployees(formattedData);
@@ -559,14 +639,13 @@ export default function Employees() {
         (e.jobTitle || '').toLowerCase().includes(search.toLowerCase()) ||
         (e.idNumber || '').toLowerCase().includes(search.toLowerCase());
 
-      const matchesRole = roleFilter === 'All' || e.role === roleFilter;
-      const matchesJob = jobFilter === 'All' || e.jobTitle === jobFilter;
+      const matchesRole = roleFilter === 'All Roles' || e.role === roleFilter;
+      const matchesJob = jobFilter === 'All Job-Titles' || e.jobTitle === jobFilter;
 
-      const today = new Date().setHours(0, 0, 0, 0);
-      const isActive = !e.endDate || new Date(e.endDate) >= today;
+      const isActive = !e.endDate;
       const matchesStatus = statusFilter === 'All' ||
         (statusFilter === 'Active' && isActive) ||
-        (statusFilter === 'Inactive' && !isActive);
+        (statusFilter === 'Former' && !isActive);
 
       return matchesSearch && matchesRole && matchesJob && matchesStatus;
     });
@@ -574,6 +653,33 @@ export default function Employees() {
 
   const handleSave = async (form) => {
     try {
+      const normalizeForCompare = (value) => (value === null || value === undefined ? '' : String(value));
+
+      const isOnlyScheduleColorChange = editItem && [
+        'name',
+        'idNumber',
+        'jobTitle',
+        'licenseExpiry',
+        'visaExpiry',
+        'workPermitExpiry',
+        'startDate',
+        'endDate',
+        'role',
+        'phone',
+        'email',
+        'image'
+      ].every(key => normalizeForCompare(form[key]) === normalizeForCompare(editItem[key]));
+
+      if (isOnlyScheduleColorChange && normalizeForCompare(form.scheduleColor) !== normalizeForCompare(editItem.scheduleColor)) {
+        await API.patch(`/employees/${editItem.id}/schedule-color`, {
+          scheduleColor: form.scheduleColor || null
+        });
+        fetchEmployees();
+        setModal(null);
+        setEditItem(null);
+        return;
+      }
+
       // Clean dates: empty string or 'N/A' should become null/undefined for backend
       const cleanDate = (d) => (!d || d === 'N/A' || d === 'Invalid Date') ? '' : d;
 
@@ -596,6 +702,7 @@ export default function Employees() {
         workPermitExpiry: cleanDate(form.workPermitExpiry),
         basicSalary: form.basicSalary || 0,
         profileImageUrl: form.image,
+        scheduleColor: form.scheduleColor || null,
         documents: form.documents
       };
 
@@ -627,7 +734,47 @@ export default function Employees() {
   };
 
   const handleExport = () => {
-    exportToCSV(employees, 'Employees_List');
+    const headers = [
+      'Employee Name',
+      'Role',
+      'Job Title',
+      'Email',
+      'Phone',
+      'ID Number',
+      'Branch',
+      'Start Date',
+      'End Date',
+      'License Expiry',
+      'Visa Expiry',
+      'Work Permit Expiry',
+      'Profile Photo'
+    ];
+    const rows = employees.map(employee => [
+      employee.name || '',
+      employee.role || '',
+      employee.jobTitle || '',
+      employee.email || '',
+      employee.phone || '',
+      employee.idNumber || '',
+      employee.branch || '',
+      employee.startDate || '',
+      employee.endDate || '',
+      employee.licenseExpiry || '',
+      employee.visaExpiry || '',
+      employee.workPermitExpiry || '',
+      employee.image ? 'Profile Photo' : ''
+    ]);
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    employees.forEach((employee, rowIndex) => {
+      if (!employee.image) return;
+      const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: 12 });
+      setExcelLinkCell(worksheet, cellRef, 'Profile Photo', employee.image);
+    });
+    styleExcelHeader(worksheet, headers);
+    worksheet['!cols'] = headers.map(header => ({ wch: header === 'Profile Photo' ? 18 : 20 }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Employees');
+    XLSX.writeFile(workbook, `Employees_List_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const handleImportClick = () => {
@@ -721,7 +868,7 @@ export default function Employees() {
             <p className="section-subtitle text-xs md:text-sm">{filteredEmployees.length} team members filtered</p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {checkPermission('employees', 'create') && (
               <>
                 <button onClick={() => setModal('add')} className="btn-primary flex-1 sm:flex-none justify-center py-2.5 text-xs md:text-sm shadow-md shadow-primary/20 whitespace-nowrap">
@@ -731,7 +878,7 @@ export default function Employees() {
               </>
             )}
             {checkPermission('employees', 'export') && (
-              <button onClick={handleExport} className="btn-ghost btn-sm border border-gray-100 justify-center py-2 text-[10px] md:text-sm whitespace-nowrap"><Download size={14} /> Export</button>
+              <button onClick={handleExport} className="min-w-[120px] px-4 h-10 justify-center text-xs md:text-sm whitespace-nowrap btn-export-excel rounded-xl flex items-center gap-2 font-bold"><FileSpreadsheet size={15} /> Export</button>
             )}
           </div>
         </div>
@@ -764,21 +911,6 @@ export default function Employees() {
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
             </div>
 
-            {/* Status Filter */}
-            <div className="relative flex-1 lg:w-40">
-              <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full pl-10 pr-8 py-2.5 bg-white border border-gray-100 rounded-2xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 transition-all shadow-sm uppercase tracking-wider"
-              >
-                <option value="All">All Status</option>
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
-            </div>
-
             {/* Role Filter */}
             <div className="relative flex-1 lg:w-40">
               <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
@@ -788,6 +920,21 @@ export default function Employees() {
                 className="w-full pl-10 pr-8 py-2.5 bg-white border border-gray-100 rounded-2xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 transition-all shadow-sm uppercase tracking-wider"
               >
                 {ROLES.map(role => <option key={role} value={role}>{role}</option>)}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
+            </div>
+
+            {/* Status Filter */}
+            <div className="relative flex-1 lg:w-40">
+              <CheckCircle className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="w-full pl-10 pr-8 py-2.5 bg-white border border-gray-100 rounded-2xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 transition-all shadow-sm uppercase tracking-wider"
+              >
+                <option value="Active">Active</option>
+                <option value="Former">Former</option>
+                <option value="All">All</option>
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
             </div>

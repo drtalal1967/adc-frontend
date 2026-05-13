@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LAB_CASES, LABS } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
-import { Search, Filter, Download, Eye, Edit2, Trash2, CheckCircle, FlaskConical, Plus, Calendar, MapPin, Hash, User, Activity, CreditCard, ChevronRight, Clock, Camera, Upload, X as CloseIcon, CheckCircle2, ArrowUpRight, ArrowDownLeft, Layers, FileText } from 'lucide-react';
+import { Search, Filter, Download, Eye, Edit2, Trash2, CheckCircle, FlaskConical, Plus, Calendar, MapPin, Hash, User, Activity, CreditCard, ChevronRight, Clock, Camera, Upload, X as CloseIcon, CheckCircle2, ArrowUpRight, ArrowDownLeft, Layers, FileText, FileSpreadsheet } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import ConfirmModal from '../components/ConfirmModal';
@@ -10,9 +10,187 @@ import { exportToCSV } from '../utils/exportUtils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import FileUpload from '../components/FileUpload';
 import CategoryManagerModal from '../components/CategoryManagerModal';
 import API, { BACKEND_URL } from '../api';
+
+const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
+
+const getCaseDueAmount = (caseItem) => Math.max(
+  0,
+  parseFloat(caseItem?.totalCost || 0) - parseFloat(caseItem?.amountPaid || 0)
+);
+
+const normalizeFileUrl = (url = '') => (
+  url && url.startsWith('http') ? url : (url ? `${BACKEND_URL}${url}` : '')
+);
+
+const getAttachmentLinks = (attachments = []) => (
+  (Array.isArray(attachments) ? attachments : [])
+    .map(item => normalizeFileUrl(typeof item === 'string' ? item : item?.fileUrl || item?.url || ''))
+    .filter(Boolean)
+);
+
+const getAttachmentLabel = (index) => `Link ${index + 1}`;
+
+const escapeExcelText = (value = '') => String(value).replace(/"/g, '""');
+
+const setExcelLinkCell = (worksheet, cellRef, label, url) => {
+  worksheet[cellRef] = {
+    t: 's',
+    v: label,
+    f: `HYPERLINK("${escapeExcelText(url)}","${escapeExcelText(label)}")`,
+    l: { Target: url, Tooltip: url },
+    s: { font: { color: { rgb: '0563C1' }, underline: true } }
+  };
+};
+
+const styleExcelHeader = (worksheet, headers = []) => {
+  headers.forEach((_, columnIndex) => {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: columnIndex });
+    if (worksheet[cellRef]) {
+      worksheet[cellRef].s = {
+        ...(worksheet[cellRef].s || {}),
+        font: { ...(worksheet[cellRef].s?.font || {}), bold: true }
+      };
+    }
+  });
+};
+
+const getPaymentAttachmentLinks = (payments = []) => (
+  (Array.isArray(payments) ? payments : [])
+    .flatMap(payment => [
+      ...getAttachmentLinks(payment?.documents || []),
+      ...getAttachmentLinks(payment?.originalData?.documents || []),
+      ...getAttachmentLinks(payment?.attachment ? [payment.attachment] : [])
+    ])
+);
+
+const uniqueLinks = (links = []) => Array.from(new Set(links.filter(Boolean)));
+
+const getLabCasePaymentLinks = (record = {}, paymentRows = []) => {
+  const recordId = Number(record.id);
+  const linkedPayments = (Array.isArray(paymentRows) ? paymentRows : []).filter(payment => {
+    const paymentLabCaseId = Number(
+      payment?.labCaseId ||
+      payment?.originalData?.labCaseId ||
+      payment?.originalData?.labCase?.id ||
+      payment?.labCase?.id
+    );
+    return recordId && paymentLabCaseId === recordId;
+  });
+
+  return uniqueLinks([
+    ...getPaymentAttachmentLinks(record.payments),
+    ...getPaymentAttachmentLinks(linkedPayments)
+  ]);
+};
+
+const getCombinedAttachmentLinks = (record = {}, paymentRows = []) => ([
+  ...getAttachmentLinks(record.images),
+  ...getLabCasePaymentLinks(record, paymentRows)
+]);
+
+const getAttachmentText = (attachments = []) => {
+  const links = getAttachmentLinks(attachments);
+  return links.length ? links.map((_, index) => getAttachmentLabel(index)).join('\n') : '-';
+};
+
+const getCombinedAttachmentText = (record = {}, paymentRows = []) => {
+  const fileLinks = getAttachmentLinks(record.images);
+  const paymentLinks = getLabCasePaymentLinks(record, paymentRows);
+  const labels = [
+    ...fileLinks.map((_, index) => `File ${index + 1}`),
+    ...paymentLinks.map((_, index) => `Pay ${index + 1}`)
+  ];
+  return labels.length ? labels.join('\n') : '-';
+};
+
+const A4_SIZE = [595.28, 841.89];
+
+const fetchAttachmentBlob = async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Unable to fetch attachment: ${response.status}`);
+  const blob = await response.blob();
+  return {
+    bytes: await blob.arrayBuffer(),
+    type: blob.type || response.headers.get('content-type') || ''
+  };
+};
+
+const drawFallbackAttachmentPage = async (pdfDoc, attachment, message = 'This attachment type cannot be embedded automatically.') => {
+  const page = pdfDoc.addPage(A4_SIZE);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  page.drawText(attachment.title || 'Attachment', { x: 42, y: 790, size: 15, font: boldFont, color: rgb(0.08, 0.12, 0.2) });
+  page.drawText(attachment.subtitle || '', { x: 42, y: 768, size: 9, font, color: rgb(0.42, 0.45, 0.5) });
+  page.drawText(`${attachment.label}:`, { x: 42, y: 720, size: 12, font: boldFont, color: rgb(0.08, 0.12, 0.2) });
+  page.drawText(message, { x: 42, y: 700, size: 10, font, color: rgb(0.42, 0.45, 0.5) });
+  page.drawText(attachment.url, { x: 42, y: 678, size: 8, font, color: rgb(0.02, 0.24, 0.58), maxWidth: 510 });
+};
+
+const addAttachmentPage = async (pdfDoc, attachment) => {
+  try {
+    const { bytes, type } = await fetchAttachmentBlob(attachment.url);
+    const isPdf = type.includes('pdf') || /\.pdf(\?|#|$)/i.test(attachment.url);
+    const isPng = type.includes('png') || /\.png(\?|#|$)/i.test(attachment.url);
+    const isJpg = type.includes('jpeg') || type.includes('jpg') || /\.jpe?g(\?|#|$)/i.test(attachment.url);
+
+    if (isPdf) {
+      const sourcePdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      const pages = await pdfDoc.copyPages(sourcePdf, sourcePdf.getPageIndices());
+      pages.forEach(page => pdfDoc.addPage(page));
+      return;
+    }
+
+    if (isPng || isJpg) {
+      const image = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+      const page = pdfDoc.addPage(A4_SIZE);
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      page.drawText(attachment.title || 'Attachment', { x: 42, y: 790, size: 13, font: boldFont, color: rgb(0.08, 0.12, 0.2) });
+      page.drawText(attachment.subtitle || '', { x: 42, y: 770, size: 9, font, color: rgb(0.42, 0.45, 0.5) });
+      const maxWidth = A4_SIZE[0] - 84;
+      const maxHeight = A4_SIZE[1] - 120;
+      const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+      const width = image.width * scale;
+      const height = image.height * scale;
+      page.drawImage(image, { x: (A4_SIZE[0] - width) / 2, y: 42, width, height });
+      return;
+    }
+
+    await drawFallbackAttachmentPage(pdfDoc, attachment);
+  } catch (error) {
+    console.warn('Could not embed attachment, adding link instead:', error);
+    await drawFallbackAttachmentPage(pdfDoc, attachment, 'This attachment could not be downloaded for embedding.');
+  }
+};
+
+const savePdfDocument = async (pdfDoc, fileName) => {
+  const bytes = await pdfDoc.save();
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+};
+
+const LabLogo = ({ logoUrl, name }) => (
+  <div className="w-8 h-8 rounded-lg bg-white border border-blue-100 flex items-center justify-center overflow-hidden text-blue-900 shadow-sm shrink-0">
+    {logoUrl ? (
+      <img src={logoUrl} alt={`${name || 'Laboratory'} logo`} className="w-full h-full object-contain p-1" />
+    ) : (
+      <FlaskConical size={14} />
+    )}
+  </div>
+);
+
 
 function StatusBadge({ status }) {
   const map = {
@@ -20,7 +198,7 @@ function StatusBadge({ status }) {
     'Completed': 'bg-teal-50 text-teal-600 border-teal-100',
   };
   return (
-    <span className={`px-2.5 py-0.5 rounded-full text-[10px] md:text-xs font-semibold border ${map[status] || 'bg-gray-50 text-gray-600 border-gray-100'}`}>
+    <span className={`px-2.5 py-0.5 rounded-full text-[10px] md:text-xs font-normal border ${map[status] || 'bg-gray-50 text-gray-600 border-gray-100'}`}>
       {status}
     </span>
   );
@@ -28,29 +206,94 @@ function StatusBadge({ status }) {
 
 function PayBadge({ status }) {
   return (
-    <span className={`px-2.5 py-0.5 rounded-full text-[10px] md:text-xs font-semibold border ${status === 'Paid' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
+    <span className={`px-2.5 py-0.5 rounded-full text-[10px] md:text-xs font-normal border ${status === 'Paid' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
       {status}
     </span>
   );
 }
 
-function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], dentists = [], customCategories = [], onManageCategories }) {
+function LabCaseModal({
+  caseItem,
+  onClose,
+  onSave,
+  setPreviewFile,
+  labs,
+  dentists,
+  customCategories,
+  onManageCategories
+}) {
+
+  console.log("MODAL RECEIVED caseItem:", caseItem);
   const isEdit = !!caseItem;
-  const [form, setForm] = useState(caseItem || {
-    patientName: '',
-    patientNumber: '',
-    teethNumber: '',
-    prosthesis: '',
-    labId: labs[0]?.id || '',
-    dentistId: dentists[0]?.id || '',
-    status: 'Pending',
-    paymentStatus: 'Unpaid',
-    createdAt: format(new Date(), 'yyyy-MM-dd'),
-    branch: 'Tubli Branch',
-    totalCost: '',
-    notes: '',
-    images: []
+  const [form, setForm] = useState({
+  patientName: '',
+  patientNumber: '',
+  teethNumber: '',
+  prosthesis: '',
+  labId: labs[0]?.id || '',
+  dentistId: dentists[0]?.id || '',
+  status: 'Pending',
+  paymentStatus: 'Unpaid',
+  createdAt: '',
+  expectedDate: '',
+  totalCost: 0,
+  amountPaid: 0,
+  images: [],
+});
+
+const toInputDate = (date) => {
+  if (!date) return '';
+
+  if (String(date).includes('T')) {
+    return String(date).slice(0, 10);
+  }
+
+  if (String(date).includes('/')) {
+    const [day, month, year] = String(date).split('/');
+    return `${year}-${month}-${day}`;
+  }
+
+  return String(date).slice(0, 10);
+};
+
+
+useEffect(() => {
+  if (!caseItem) return;
+
+  setForm({
+    patientName: caseItem.patientName ?? '',
+    patientNumber: caseItem.patientNumber ?? '',
+    teethNumber: caseItem.teethNumber ?? '',
+    prosthesis: caseItem.prosthesis ?? '',
+    labId: caseItem.labId ?? caseItem.laboratoryId ?? caseItem.laboratory?.id ?? '',
+    dentistId: caseItem.dentistId ?? caseItem.dentist?.id ?? '',
+
+    status: caseItem.status ?? 'Pending',
+    paymentStatus: caseItem.paymentStatus ?? 'Unpaid',
+
+    createdAt: caseItem.createdAt
+  ? toInputDate(caseItem.createdAt)
+  : '',
+
+    expectedDate: caseItem.expectedDate
+  ? new Date(caseItem.expectedDate).toISOString().slice(0,16)
+  : '',
+
+    totalCost: Number(caseItem.totalCost) || 0,
+    amountPaid: Number(caseItem.amountPaid) || 0,
+
+    images: caseItem.images
+  ? Array.isArray(caseItem.images)
+    ? caseItem.images
+    : [caseItem.images]
+  : [],
   });
+
+}, [caseItem]);
+
+
+  // ✅ NEW FIELD
+ 
   const [images, setImages] = useState(form.images || []);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -81,8 +324,8 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
 
       setPayments((paymentsRes.data || []).map(p => ({
         id: p.id,
-        date: format(new Date(p.paymentDate), 'M/d/yyyy'),
-        amount: parseFloat(p.amount).toFixed(2),
+        date: format(new Date(p.paymentDate), 'dd/mm/yyyy'),
+        amount: parseFloat(p.amount) || 0,
         method: p.paymentMethod,
         status: 'Paid', // Assuming any record here is a payment made
         recordedBy: 'System'
@@ -95,7 +338,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
   };
   const [newLog, setNewLog] = useState({
     type: 'Pickup',
-    date: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
+    date: format(new Date(), "dd/mm/yyyy'T'HH:mm"),
     notes: ''
   });
 
@@ -117,17 +360,13 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
 
       setNewLog({
         type: 'Pickup',
-        date: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
+        date: format(new Date(), "dd/mm/yyyy'T'HH:mm"),
         notes: ''
       });
     } catch (err) {
       console.error('Error adding log:', err);
       alert('Failed to add log entry');
     }
-  };
-
-  const handleDeleteLog = (id) => {
-    setLogs(prev => prev.filter(l => l.id !== id));
   };
 
   const handleSubmit = (e) => {
@@ -171,19 +410,44 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                   className="input w-full h-12 rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium"
                 />
               </div>
+
+
               <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-700 block pl-1">Creation Date *</label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    required
-                    value={form.createdAt}
-                    onChange={e => setForm({ ...form, createdAt: e.target.value })}
-                    className="input w-full h-12 rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium pr-10 relative z-10 bg-transparent"
-                    onClick={(e) => e.target.showPicker && e.target.showPicker()}
-                  />
-                  <Calendar className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-0" size={18} />
-                </div>
+<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  {/* Creation Date */}
+  <div className="space-y-2">
+    <label className="text-xs font-bold text-gray-700 block pl-1">
+      Creation Date *
+    </label>
+
+    <input
+      type="date"
+      value={form.createdAt || ''}
+      onChange={e =>
+        setForm({ ...form, createdAt: e.target.value })
+      }
+      className="input w-full h-12 rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium"
+    />
+  </div>
+
+  {/* Due Date */}
+  <div className="space-y-2">
+    <label className="text-xs font-bold text-gray-700 block pl-1">
+      Due Date
+    </label>
+
+    <input
+      type="datetime-local"
+      value={form.expectedDate || ''}
+      onChange={e =>
+        setForm({ ...form, expectedDate: e.target.value })
+      }
+      className="input w-full h-12 rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium"
+    />
+  </div>
+
+</div>                
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-700 block pl-1">Teeth Number</label>
@@ -200,7 +464,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                   <select 
                     value={form.branch} 
                     onChange={e => setForm({ ...form, branch: e.target.value })}
-                    className="input h-12 w-full appearance-none bg-no-repeat rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium pr-10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     <option value="Tubli Branch">Tubli Branch</option>
                     <option value="Manama Branch">Manama Branch</option>
@@ -215,7 +479,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                     required
                     value={form.labId} 
                     onChange={e => setForm({ ...form, labId: e.target.value })}
-                    className="input h-12 w-full appearance-none bg-no-repeat rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium pr-10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     <option value="">Select Lab</option>
                     {labs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -230,7 +494,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                     required
                     value={form.dentistId} 
                     onChange={e => setForm({ ...form, dentistId: e.target.value })}
-                    className="input h-12 w-full appearance-none bg-no-repeat rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium pr-10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     <option value="">Select Dentist</option>
                     {dentists.map(d => <option key={d.id} value={d.id}>{d.firstName} {d.lastName}</option>)}
@@ -239,27 +503,32 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                 </div>
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between pl-1">
-                  <label className="text-xs font-bold text-gray-700 block">Prosthesis Type *</label>
-                  <button 
-                    type="button"
-                    onClick={() => onManageCategories?.()}
-                    className="text-[10px] font-black text-orange-500 hover:underline uppercase tracking-widest flex items-center gap-1"
-                  >
-                    Manage
-                  </button>
-                </div>
-                <div className="relative">
-                  <select 
-                    value={form.prosthesis} 
-                    onChange={e => setForm({ ...form, prosthesis: e.target.value })}
-                    className="input h-12 w-full appearance-none bg-no-repeat rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium pr-10"
-                  >
-                    <option value="">Select type</option>
-                    {ALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
-                </div>
+  <div className="pl-1">
+    <label className="text-xs font-bold text-gray-700 block">
+      Prosthesis Type *
+    </label>
+  </div>
+
+  <div className="relative">
+  <select 
+    value={form.prosthesis} 
+    onChange={e => setForm({ ...form, prosthesis: e.target.value })}
+    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
+  >
+    <option value="">Select type</option>
+
+    {ALL_TYPES.map(t => (
+      <option key={t} value={t}>
+        {t}
+      </option>
+    ))}
+  </select>
+
+  <ChevronRight
+    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90"
+    size={18}
+  />
+</div>
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-700 block pl-1">Case Status *</label>
@@ -267,7 +536,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                   <select 
                     value={form.status} 
                     onChange={e => setForm({ ...form, status: e.target.value })}
-                    className="input h-12 w-full appearance-none bg-no-repeat rounded-2xl border-gray-200 focus:ring-orange-500/20 focus:border-orange-500 text-sm font-medium pr-10"
+                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     {['Pending', 'Completed'].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
@@ -371,7 +640,19 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                  </div>
 
                  <div className="bg-gray-50/80 p-5 rounded-3xl border border-gray-100/50">
-                   <p className="text-xs font-medium text-gray-500">Case created on <span className="text-gray-900 font-bold">{caseItem.createdAt ? format(new Date(caseItem.createdAt), 'M/d/yyyy') : 'N/A'}</span> for Dentist: <span className="text-orange-500 font-bold hover:underline cursor-pointer">{caseItem.dentistName || 'User'}</span></p>
+                   <p className="text-xs font-medium text-gray-500">Case created on <span className="text-gray-900 font-bold">
+{caseItem.createdAt
+  ? (() => {
+      const parts = caseItem.createdAt.split('/');
+      if (parts.length === 3) {
+        const [day, month, year] = parts;
+        const d = new Date(`${year}-${month}-${day}`);
+        return isNaN(d) ? 'N/A' : format(d, 'dd/MM/yyyy');
+      }
+      return 'N/A';
+    })()
+  : 'N/A'}
+</span> for Dentist: <span className="text-orange-500 font-bold hover:underline cursor-pointer">{caseItem.dentistName || 'User'}</span></p>
                  </div>
 
                  <div className="space-y-4">
@@ -409,7 +690,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                  <div className="bg-gray-50/50 p-8 rounded-[2.5rem] border border-gray-100 space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        <div className="space-y-2">
-                          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest pl-1">Type</label>
+                          <label className="text-[11px] font-black text-gray-600 uppercase tracking-widest pl-1">Type</label>
                           <div className="relative">
                             <select 
                               value={newLog.type}
@@ -423,7 +704,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                           </div>
                        </div>
                        <div className="space-y-2">
-                          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest pl-1">Date & Time</label>
+                          <label className="text-[11px] font-black text-gray-600 uppercase tracking-widest pl-1">Date & Time</label>
                           <input 
                             type="datetime-local" 
                             className="input h-12 py-0 text-sm w-full rounded-2xl" 
@@ -432,7 +713,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                           />
                        </div>
                        <div className="space-y-2">
-                          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest pl-1">Notes</label>
+                          <label className="text-[11px] font-black text-gray-600 uppercase tracking-widest pl-1">Notes</label>
                           <input 
                             placeholder="Optional notes..." 
                             className="input h-12 text-sm w-full rounded-2xl" 
@@ -466,7 +747,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                     <table className="w-full text-left">
                        <thead>
                           <tr className="bg-gray-50/60">
-                             {['Date', 'Amount', 'Method', 'Status', 'Recorded By'/*, 'Actions'*/].map(h => <th key={h} className="px-6 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">{h}</th>)}
+                             {['Date', 'Amount', 'Method', 'Status', 'Recorded By'/*, 'Actions'*/].map(h => <th key={h} className="px-6 py-5 text-[11px] font-black text-gray-600 uppercase tracking-widest">{h}</th>)}
                           </tr>
                      </thead>
                      <tbody className="divide-y divide-gray-50">
@@ -478,7 +759,7 @@ function LabCaseModal({ caseItem, onClose, onSave, setPreviewFile, labs = [], de
                            </td>
                            <td className="px-6 py-6">
                              <div className="space-y-1">
-                               <p className="font-bold text-gray-900 tracking-tight">BHD {p.amount}</p>
+                               <p className="font-bold text-gray-900 tracking-tight">BHD {formatBHD(p.amount)}</p>
                                <p className="text-[10px] text-gray-400 font-medium">Recorded on: {p.date}</p>
                              </div>
                            </td>
@@ -546,21 +827,23 @@ function ViewModal({ caseItem, onClose, userRole, onUpdateStatus, setPreviewFile
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[
               { label: 'Teeth No.', value: caseItem.teethNumber, icon: Activity },
               { label: 'Dentist', value: caseItem.dentistName, icon: User },
-              { label: 'Total Cost', value: caseItem.totalCost ? `BHD ${caseItem.totalCost}` : '—', icon: CreditCard },
-              { label: 'Laboratory', value: caseItem.labName, icon: FlaskConical },
+              { label: 'Total Cost', value: caseItem.totalCost ? `BHD ${formatBHD(caseItem.totalCost)}` : '�', icon: CreditCard },
+              { label: 'Laboratory', value: caseItem.labName, logoUrl: caseItem.labLogoUrl, icon: FlaskConical },
               { label: 'Prosthesis', value: caseItem.prosthesis, icon: FlaskConical },
               { label: 'Created', value: caseItem.createdAt, icon: Calendar },
-              { label: 'Sent', value: caseItem.sentDate || '—', icon: Clock },
-              { label: 'Received', value: caseItem.receivedDate || '—', icon: Clock },
-            ].map(item => (
+              { label: 'Sent', value: caseItem.sentDate || '—' },
+{ label: 'Received', value: caseItem.receivedDate || '—' },
+
+              ].map(item => (
               <div key={item.label} className="space-y-1">
                 <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{item.label}</span>
-                <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                   {item.value}
+                <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                   {item.label === 'Laboratory' && <LabLogo logoUrl={item.logoUrl} name={item.value} />}
+                   <span>{item.value}</span>
                 </p>
               </div>
             ))}
@@ -616,24 +899,62 @@ function ViewModal({ caseItem, onClose, userRole, onUpdateStatus, setPreviewFile
             </div>
           )}
 
-          {caseItem.paymentStatus === 'Paid' && (
-            <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 space-y-3 text-left">
-              <div className="flex items-center gap-2 border-l-2 border-emerald-500 pl-2">
-                <h4 className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Payment Information</h4>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[9px] text-emerald-600 font-bold uppercase">Payment ID</p>
-                  <p className="text-xs font-mono font-bold text-gray-700">#PAY-99283</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-emerald-600 font-bold uppercase">Invoice No.</p>
-                  <p className="text-xs font-bold text-gray-700">INV-22485</p>
-                </div>
-                <div>
-                  <p className="text-[9px] text-emerald-600 font-bold uppercase">Payment Date</p>
-                  <p className="text-xs font-bold text-gray-700">{caseItem.createdAt || '—'}</p>
-                </div>
+          {caseItem.payments && caseItem.payments.length > 0 && (
+            <div className="space-y-3 pt-4 border-t border-gray-50 text-left">
+              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block">Payment History ({caseItem.payments.length})</span>
+              <div className="space-y-3">
+                {caseItem.payments.map(payment => (
+                  <div key={payment.id} className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Payment #{payment.id}</p>
+                        <p className="text-lg font-black text-gray-900">BHD {formatBHD(payment.amount)}</p>
+                      </div>
+                      <span className="px-3 py-1 rounded-xl bg-white text-emerald-700 border border-emerald-100 text-[10px] font-black uppercase tracking-widest">
+                        {payment.status || 'PAID'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <p className="text-[9px] text-emerald-600 font-bold uppercase">Payment Date</p>
+                        <p className="font-bold text-gray-700">{payment.paymentDate || '�'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-emerald-600 font-bold uppercase">Method</p>
+                        <p className="font-bold text-gray-700 capitalize">{payment.paymentMethod || 'Cash'}</p>
+                      </div>
+                      {payment.referenceNumber && (
+                        <div>
+                          <p className="text-[9px] text-emerald-600 font-bold uppercase">Reference</p>
+                          <p className="font-bold text-gray-700">{payment.referenceNumber}</p>
+                        </div>
+                      )}
+                    </div>
+                    {payment.notes && (
+                      <div className="rounded-xl bg-white/70 border border-emerald-100 p-3">
+                        <p className="text-[9px] text-emerald-600 font-bold uppercase mb-1">Notes</p>
+                        <p className="text-xs font-medium text-gray-600 italic">{payment.notes}</p>
+                      </div>
+                    )}
+                    {payment.documents && payment.documents.length > 0 && (
+                      <div className="pt-2 border-t border-emerald-100/70">
+                        <p className="text-[9px] text-emerald-600 font-bold uppercase mb-2">Payment Attachments ({payment.documents.length})</p>
+                        <div className="flex flex-wrap gap-2">
+                          {payment.documents.map((doc, i) => (
+                            <button
+                              key={doc.id || i}
+                              type="button"
+                              onClick={() => setPreviewFile(doc.fileUrl)}
+                              className="px-3 py-2 rounded-xl bg-white border border-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100 transition-all flex items-center gap-2"
+                            >
+                              <FileText size={13} /> {doc.fileName || doc.title || `File ${i + 1}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -677,13 +998,20 @@ function ViewModal({ caseItem, onClose, userRole, onUpdateStatus, setPreviewFile
   );
 }
 
-function BatchPaymentModal({ selectedItems, onClose, onSave }) {
-  const totalPaid = selectedItems.reduce((acc, item) => acc + parseFloat(item.amountPaid || 0), 0);
-  const totalCost = selectedItems.reduce((acc, item) => acc + parseFloat(item.totalCost || 0), 0);
-  const totalDue = Math.max(0, totalCost - totalPaid);
+function BatchPaymentModal({ selectedCases, onClose, onSave }) {
+  const totalPaid = selectedCases.reduce(
+  (acc, item) => acc + parseFloat(item.amountPaid || 0),
+  0
+);
+
+const totalCost = selectedCases.reduce(
+  (acc, item) => acc + parseFloat(item.totalCost || 0),
+  0
+);
+  const totalDue = totalCost - totalPaid;
 
   const [form, setForm] = useState({
-    amount: totalDue.toFixed(2),
+    amount: totalDue.toFixed(3),
     method: 'Cash',
     notes: '',
     files: []
@@ -704,21 +1032,21 @@ function BatchPaymentModal({ selectedItems, onClose, onSave }) {
              </div>
              <div>
                 <h2 className="font-bold text-gray-900 text-2xl tracking-tight">Batch Payment</h2>
-                <p className="text-xs text-gray-400 font-medium mt-0.5 tracking-wide uppercase">Processing payment for {selectedItems.length} selected items</p>
+                <p className="text-xs text-gray-400 font-medium mt-0.5 tracking-wide uppercase">Processing payment for {selectedCases.length} selected items</p>
              </div>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-50 transition-all"><CloseIcon size={24} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-8 font-sans scrollbar-hide space-y-8 text-left">
-           <div className="grid grid-cols-2 gap-4 bg-gray-50/50 p-6 rounded-[2rem] border border-gray-100/50">
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/50 p-6 rounded-[2rem] border border-gray-100/50">
               <div className="space-y-1">
-                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest pl-1">Total Previously Paid</p>
-                 <p className="text-2xl font-bold text-emerald-500 tracking-tight">BHD {totalPaid.toFixed(2)}</p>
+                 <p className="text-[11px] font-black text-gray-600 uppercase tracking-widest pl-1">Total Previously Paid</p>
+                 <p className="text-2xl font-bold text-emerald-500 tracking-tight">BHD {formatBHD(totalPaid)}</p>
               </div>
-              <div className="space-y-1 border-l border-gray-100 pl-6">
-                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest pl-1">Total Due for Selected</p>
-                 <p className="text-2xl font-bold text-rose-500 tracking-tight">BHD {totalDue.toFixed(2)}</p>
+              <div className="space-y-1 md:border-l border-gray-100 md:pl-6">
+                 <p className="text-[11px] font-black text-gray-600 uppercase tracking-widest pl-1">Total Due for Selected</p>
+                 <p className="text-2xl font-bold text-rose-500 tracking-tight">BHD {formatBHD(totalDue)}</p>
               </div>
            </div>
 
@@ -804,11 +1132,14 @@ export default function LabCases() {
   const [cases, setCases] = useState([]);
   const [labs, setLabs] = useState([]);
   const [dentists, setDentists] = useState([]);
+  const [paymentRows, setPaymentRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [payFilter, setPayFilter] = useState('All');
   const [branchFilter, setBranchFilter] = useState('All');
+  const [dentistFilter, setDentistFilter] = useState('All');
+  const [labFilter, setLabFilter] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null); // id of case to delete
@@ -839,6 +1170,7 @@ export default function LabCases() {
       let casesRes = { data: [] };
       let labsRes = { data: [] };
       let dentistsRes = { data: [] };
+      let paymentsRes = { data: [] };
 
       try {
         casesRes = await API.get('/lab-cases');
@@ -858,34 +1190,62 @@ export default function LabCases() {
         console.warn('Fetch Dentists Error (ignoring):', err.message);
       }
 
+      try {
+        paymentsRes = await API.get('/payments/all');
+      } catch (err) {
+        console.warn('Fetch Payments Error (ignoring):', err.message);
+      }
+
       const formattedCases = (casesRes.data || []).map(c => ({
-        ...c,
-        id: c.id,
-        patientName: c.patientName,
-        patientNumber: c.patientNumber,
-        teethNumber: c.toothNumbers || '',
-        prosthesis: c.prosthesisType,
-        labId: c.labId || c.laboratoryId,
-        labName: c.laboratory?.name || 'Unknown Lab',
-        dentistId: c.dentistId,
-        dentistName: c.dentist ? `${c.dentist.firstName} ${c.dentist.lastName}` : 'Unknown Dentist',
-        status: formatStatus(c.status),
-        paymentStatus: formatPaymentStatus(c.paymentStatus),
-        totalCost: c.cost,
-        createdAt: c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-CA') : '',
-        sentDate: c.sentDate ? new Date(c.sentDate).toLocaleDateString('en-CA') : '',
-        receivedDate: c.receivedDate ? new Date(c.receivedDate).toLocaleDateString('en-CA') : '',
-        branch: c.branch || 'Tubli Branch', 
-        images: (c.documents || []).map(doc => {
-          const url = doc.fileUrl || '';
-          // if already absolute (http), use as-is; otherwise prepend backend base
-          return url.startsWith('http') ? url : `${BACKEND_URL}${url}`;
-        })
-      }));
+  ...c,
+  id: c.id,
+  patientName: c.patientName,
+  patientNumber: c.patientNumber,
+  teethNumber: c.toothNumbers || '',
+  prosthesis: c.prosthesisType,
+  labId: c.labId || c.laboratoryId,
+  labName: c.laboratory?.name || 'Unknown Lab',
+  labLogoUrl: c.laboratory?.logoUrl || '',
+  dentistId: c.dentistId,
+  dentistName: c.dentist
+    ? `${c.dentist.firstName} ${c.dentist.lastName}`
+    : 'Unknown Dentist',
+
+  // ✅ KEEP formatted version ONLY
+  status: formatStatus(c.status),
+  paymentStatus: formatPaymentStatus(c.paymentStatus),
+
+  totalCost: c.cost,
+
+  // ✅ FIXED (only once)
+  createdAt: c.createdAt
+    ? new Date(c.createdAt).toLocaleDateString('en-GB')
+    : '',
+
+  sentDate: c.sentDate
+    ? new Date(c.sentDate).toLocaleDateString('en-GB')
+    : '',
+
+  receivedDate: c.receivedDate
+    ? new Date(c.receivedDate).toLocaleDateString('en-GB')
+    : '',
+
+  // ✅ NEW FIELD (correct)
+  expectedDate: c.expectedDate
+  ? new Date(c.expectedDate).toISOString().slice(0,16)
+  : '',
+
+  branch: c.branch || 'Tubli Branch',
+
+  images: (c.documents || []).map(doc => {
+    return normalizeFileUrl(doc.fileUrl || '');
+  })
+}));
       
       setCases(formattedCases);
       setLabs(labsRes.data);
       setDentists(dentistsRes.data);
+      setPaymentRows(paymentsRes.data || []);
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -934,18 +1294,42 @@ export default function LabCases() {
   const payStatuses = ['All', 'Paid', 'Unpaid'];
 
   const filtered = cases.filter(c => {
-    const matchSearch = !search || (c.patientName || '').toLowerCase().includes(search.toLowerCase()) || (c.patientNumber || '').toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === 'All' || c.status === statusFilter;
-    const matchPay = payFilter === 'All' || c.paymentStatus === payFilter;
-    const matchBranch = branchFilter === 'All' || c.branch === branchFilter;
-    
-    // Robust date filtering using local date string comparison
-    const caseDate = c.createdAt || ''; // Already local YYYY-MM-DD from mapping
-    const matchDateFrom = !dateFrom || (caseDate && caseDate >= dateFrom);
-    const matchDateTo = !dateTo || (caseDate && caseDate <= dateTo);
-    
-    return matchSearch && matchStatus && matchPay && matchBranch && matchDateFrom && matchDateTo;
-  });
+  const matchSearch = !search || (c.patientName || '').toLowerCase().includes(search.toLowerCase()) || (c.patientNumber || '').toLowerCase().includes(search.toLowerCase());
+  const matchStatus = statusFilter === 'All' || c.status === statusFilter;
+  const matchPay = payFilter === 'All' || c.paymentStatus === payFilter;
+  const matchBranch = branchFilter === 'All' || c.branch === branchFilter;
+
+  // ✅ NEW
+  const matchDentist = dentistFilter === 'All' || c.dentistName === dentistFilter;
+  const matchLab = labFilter === 'All' || c.labName === labFilter;
+
+  // ✅ Convert everything to real Date objects
+// ✅ SAFE date parsing for DD/MM/YYYY
+// ✅ KEEP THIS ONLY
+const parseDate = (dateStr) => {
+  if (!dateStr) return null;
+  if (dateStr.includes('-')) return new Date(dateStr);
+  const [day, month, year] = dateStr.split('/');
+  return new Date(`${year}-${month}-${day}`);
+};
+
+const caseDate = parseDate(c.createdAt);
+
+const from = dateFrom ? new Date(dateFrom) : null;
+const to = dateTo
+  ? new Date(new Date(dateTo).setHours(23, 59, 59, 999))
+  : null;
+
+// ✅ Apply filters
+const matchDateFrom = !from || (caseDate && caseDate >= from);
+const matchDateTo = !to || (caseDate && caseDate <= to);
+
+  return matchSearch && matchStatus && matchPay && matchBranch && matchDentist && matchLab && matchDateFrom && matchDateTo;
+});
+
+const selectedTotal = cases
+  .filter(c => selectedIDs.includes(c.id))
+  .reduce((sum, c) => sum + getCaseDueAmount(c), 0);
 
   const canEdit = ['admin', 'manager', 'secretary'].includes(user?.role);
   const canMarkPaid = ['admin', 'manager', 'accountant'].includes(user?.role);
@@ -960,54 +1344,48 @@ export default function LabCases() {
   };
 
   const handleSave = async (form) => {
-    if (form.refreshOnly) {
-      await fetchData();
-      return;
-    }
-    try {
-      const payload = {
-        patientName: form.patientName,
-        patientNumber: form.patientNumber,
-        toothNumbers: form.teethNumber,
-        prosthesisType: form.prosthesis,
-        laboratoryId: parseInt(form.labId),
-        dentistId: parseInt(form.dentistId),
-        status: apiStatusMap[form.status],
-        cost: parseFloat(form.totalCost) || 0,
-        branch: form.branch,
-        notes: form.notes,
-        createdAt: form.createdAt ? new Date(form.createdAt).toISOString() : undefined
-      };
+  if (form.refreshOnly) {
+    await fetchData();
+    return;
+  }
 
-      let savedId;
-      if (editItem) {
-        await API.put(`/lab-cases/${editItem.id}`, payload);
-        savedId = editItem.id;
-      } else {
-        const res = await API.post('/lab-cases', payload);
-        savedId = res.data.id;
-      }
+console.log("FORM DATA:", form);
+  console.log("DUE DATE VALUE:", form.expectedDate);
 
-      // Upload any pending files and associate with this lab case
-      if (form.pendingFiles && form.pendingFiles.length > 0 && savedId) {
-        for (const file of form.pendingFiles) {
-          const fd = new FormData();
-          fd.append('file', file);
-          fd.append('title', file.name);
-          fd.append('category', 'Lab Case');
-          fd.append('labCaseId', savedId.toString());
-          await API.post('/documents/upload', fd);
-        }
-      }
+  
+  try {
 
-      fetchData();
-      setModal(null);
-      setEditItem(null);
-    } catch (err) {
-      console.error('Error saving lab case:', err);
-      alert(err.response?.data?.message || 'Error saving lab case');
-    }
-  };
+  const payload = {
+  patientName: form.patientName,
+  patientNumber: form.patientNumber,
+  toothNumbers: String(form.teethNumber),
+  prosthesisType: form.prosthesis,
+  labId: form.labId ? parseInt(form.labId) : undefined,
+  dentistId: form.dentistId ? parseInt(form.dentistId) : undefined,
+  status: form.status?.toUpperCase(),
+  cost: parseFloat(form.totalCost) || 0,
+  expectedDate: form.expectedDate || null,
+};
+
+// ✅ RIGHT PLACE (outside the object)
+console.log("SENDING PAYLOAD:", payload);
+
+if (editItem) {
+  await API.put(`/lab-cases/${editItem.id}`, payload);
+} else {
+  await API.post('/lab-cases', payload);
+}
+
+    // ✅ CLOSE MODAL AFTER SAVE
+    setModal(null);
+    setEditItem(null);
+    fetchData();
+
+  } catch (err) {
+    console.error("SAVE ERROR:", err);
+    alert(err?.response?.data?.message || err.message);
+  }
+};
 
   const markPaid = (id) => {
     setCases(prev => prev.map(c => c.id === id ? { ...c, paymentStatus: 'Paid' } : c));
@@ -1106,7 +1484,7 @@ export default function LabCases() {
                 paymentStatus: item.paymentStatus || item.Payment || 'Unpaid',
                 branch: item.branch || item.Branch || 'Tubli Branch',
                 totalCost: item.totalCost || item.Cost || '',
-                createdAt: item.createdAt || item.Date || format(new Date(), 'yyyy-MM-dd'),
+                createdAt: item.createdAt || item.Date || format(new Date(), 'dd-mm-yyyy'),
                 images: []
               }));
             setCases(prev => [...formatted, ...prev]);
@@ -1128,79 +1506,253 @@ export default function LabCases() {
   };
 
   const handleExportExcel = () => {
-    const exportData = filtered.map(c => ({
-      'Case Number': c.patientNumber,
-      'Patient Name': c.patientName,
-      'Teeth Number': c.teethNumber,
-      'Prosthesis Type': c.prosthesis,
-      'Dental Lab': c.laboratory?.name || c.lab || 'Unknown Lab',
-      'Branch': c.branch,
-      'Dentist': c.dentist?.name || c.dentist || 'Unknown',
-      'Status': c.status,
-      'Payment Status': c.paymentStatus,
-      'Total Cost (BHD)': c.totalCost || 0,
-      'Amount Paid (BHD)': c.amountPaid || 0,
-      'Due Amount (BHD)': parseFloat(c.totalCost || 0) - parseFloat(c.amountPaid || 0),
-      'Created Date': c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '',
-      'Expected Date': c.expectedDate ? new Date(c.expectedDate).toLocaleDateString() : '',
-    }));
-    exportToCSV(exportData, 'Lab_Cases_Report');
-  };
-
-  const handleExportPDF = () => {
-    const doc = new jsPDF('landscape');
-    
-    doc.setFontSize(18);
-    doc.text('Lab Cases Report', 14, 22);
-    
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
-
-    const tableColumn = ["Case No", "Patient Name", "Lab Name", "Prosthesis", "Status", "Total (BHD)", "Due (BHD)", "Date"];
-    const tableRows = [];
-
-    filtered.forEach(c => {
-      const rowData = [
+    const maxAttachments = Math.max(0, ...filtered.map(c => getAttachmentLinks(c.images).length));
+    const maxPaymentAttachments = Math.max(0, ...filtered.map(c => getLabCasePaymentLinks(c, paymentRows).length));
+    const attachmentHeaders = Array.from({ length: maxAttachments }, (_, index) => `File ${index + 1}`);
+    const paymentAttachmentHeaders = Array.from({ length: maxPaymentAttachments }, (_, index) => `Pay ${index + 1}`);
+    const headers = [
+      'Case Number',
+      'Patient Name',
+      'Teeth Number',
+      'Prosthesis Type',
+      'Dental Lab',
+      'Branch',
+      'Dentist',
+      'Status',
+      'Payment Status',
+      'Total Cost (BHD)',
+      'Amount Paid (BHD)',
+      'Due Amount (BHD)',
+      'Created Date',
+      'Expected Date',
+      ...attachmentHeaders,
+      ...paymentAttachmentHeaders,
+    ];
+    const rows = filtered.map(c => {
+      const links = getAttachmentLinks(c.images);
+      const paymentLinks = getLabCasePaymentLinks(c, paymentRows);
+      return [
         c.patientNumber,
         c.patientName,
-        c.laboratory?.name || c.lab || 'Unknown',
+        c.teethNumber,
         c.prosthesis,
+        c.laboratory?.name || c.labName || c.lab || 'Unknown Lab',
+        c.branch,
+        c.dentist?.name || c.dentistName || c.dentist || 'Unknown',
         c.status,
-        c.totalCost || 0,
-        (parseFloat(c.totalCost || 0) - parseFloat(c.amountPaid || 0)).toFixed(2),
-        c.createdAt ? new Date(c.createdAt).toLocaleDateString() : ''
+        c.paymentStatus,
+        formatBHD(c.totalCost),
+        formatBHD(c.amountPaid),
+        formatBHD(getCaseDueAmount(c)),
+        c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-GB') : '',
+        c.expectedDate ? new Date(c.expectedDate).toLocaleDateString('en-GB') : '',
+        ...attachmentHeaders.map((_, index) => links[index] ? `File ${index + 1}` : ''),
+        ...paymentAttachmentHeaders.map((_, index) => paymentLinks[index] ? `Pay ${index + 1}` : ''),
       ];
-      tableRows.push(rowData);
     });
-
-    autoTable(doc, {
-      head: [tableColumn],
-      body: tableRows,
-      startY: 40,
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [28, 55, 86] },
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    filtered.forEach((c, rowIndex) => {
+      const links = getAttachmentLinks(c.images);
+      links.forEach((url, linkIndex) => {
+        const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: 14 + linkIndex });
+        setExcelLinkCell(worksheet, cellRef, `File ${linkIndex + 1}`, url);
+      });
+      const paymentLinks = getLabCasePaymentLinks(c, paymentRows);
+      paymentLinks.forEach((url, linkIndex) => {
+        const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: 14 + attachmentHeaders.length + linkIndex });
+        setExcelLinkCell(worksheet, cellRef, `Pay ${linkIndex + 1}`, url);
+      });
     });
-
-    doc.save(`Lab_Cases_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    styleExcelHeader(worksheet, headers);
+    worksheet['!cols'] = headers.map(header => ({ wch: header.startsWith('File') || header.startsWith('Pay') ? 12 : 18 }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Lab Cases');
+    XLSX.writeFile(workbook, `Lab_Cases_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
+
+const handleExportPDF = () => {
+
+  const doc = new jsPDF('landscape');   // ✅ FIRST LINE
+
+  // Title
+  doc.setFontSize(18);
+  doc.text('Lab Cases Report', 14, 22);
+
+  // Filters
+  const dentistText = dentistFilter !== 'All' ? dentistFilter : 'All Dentists';
+  const fromText = dateFrom || 'Any';
+  const toText = dateTo || 'Any';
+
+  doc.setFontSize(11);
+  doc.text(`Dentist: ${dentistText}`, 14, 32);
+  doc.text(`Date Range: ${fromText} → ${toText}`, 14, 38);
+
+  // Table
+const totalAmount = filtered.reduce((sum, c) => {
+  const amount = getCaseDueAmount(c);
+  return sum + amount;
+}, 0);
+  autoTable(doc, {
+  startY: 50,
+
+  head: [[
+    'Patient No',
+    'Patient Name',
+    'Lab',
+    'Prosthesis',
+    'Status',
+    'Due Date',
+    'Amount',
+    'Payment',
+    'Attachments'
+  ]],
+
+  body: filtered.map(c => [
+    c.patientNumber || '-',       
+    c.patientName || '-',         
+    c.labName || '-',       
+    c.prosthesis || '-',
+    c.status || '-',
+    c.expectedDate || '-',
+    formatBHD(getCaseDueAmount(c)),
+    c.paymentStatus || '-',
+    getCombinedAttachmentText(c, paymentRows)
+  ]),
+
+  // ✅ ADD THIS FOOTER
+  foot: [[
+    '',
+    '',
+    '',
+    '',
+    '',
+    'TOTAL',
+    formatBHD(totalAmount),
+    '',
+    ''
+  ]],
+  margin: { left: 8, right: 8 },
+  tableWidth: 'auto',
+  styles: { fontSize: 7, cellPadding: 1.4, overflow: 'linebreak', valign: 'top' },
+  headStyles: { fontSize: 7, fillColor: [28, 55, 86], textColor: 255 },
+  columnStyles: {
+    0: { cellWidth: 20 },
+    1: { cellWidth: 34 },
+    2: { cellWidth: 30 },
+    3: { cellWidth: 25 },
+    4: { cellWidth: 22 },
+    5: { cellWidth: 25 },
+    6: { cellWidth: 20, halign: 'right' },
+    7: { cellWidth: 20 },
+    8: { cellWidth: 85, textColor: [255, 255, 255] },
+  },
+  didParseCell: (data) => {
+    if (data.section !== 'body' || data.column.index !== 8) return;
+    const labCase = filtered[data.row.index];
+    const linkCount = getCombinedAttachmentLinks(labCase, paymentRows).length;
+    data.cell.text = [];
+    data.cell.styles.minCellHeight = Math.max(data.cell.styles.minCellHeight || 0, linkCount ? 4 + (linkCount * 4) : 7);
+  },
+  didDrawCell: (data) => {
+    if (data.section !== 'body' || data.column.index !== 8) return;
+    const labCase = filtered[data.row.index];
+    const links = getCombinedAttachmentLinks(labCase, paymentRows);
+    if (!links.length) {
+      doc.setTextColor(80, 80, 80);
+      doc.text('-', data.cell.x + 1.4, data.cell.y + 4);
+      return;
+    }
+    doc.setFontSize(7);
+    const fileCount = getAttachmentLinks(labCase?.images).length;
+    links.forEach((url, index) => {
+      const y = data.cell.y + 3.8 + (index * 3.6);
+      if (y < data.cell.y + data.cell.height - 1) {
+        doc.setTextColor(5, 99, 193);
+        const label = index < fileCount ? `File ${index + 1}` : `Pay ${index - fileCount + 1}`;
+        doc.textWithLink(label, data.cell.x + 1.4, y, { url });
+      }
+    });
+  }
+});
+
+  doc.save('lab-cases.pdf');
+};
+
+const handleExportAttachmentsPDF = async () => {
+  const records = selectedIDs.length
+    ? filtered.filter(item => selectedIDs.includes(item.id))
+    : filtered;
+
+  const attachments = records.flatMap(record => {
+    const fileLinks = getAttachmentLinks(record.images).map((url, index) => ({
+      url,
+      label: `File ${index + 1}`,
+      title: record.patientName || 'Lab Case',
+      subtitle: `${record.patientNumber || 'No patient number'} - ${record.labName || 'Unknown Lab'}`
+    }));
+    const paymentLinks = getLabCasePaymentLinks(record, paymentRows).map((url, index) => ({
+      url,
+      label: `Pay ${index + 1}`,
+      title: record.patientName || 'Lab Case',
+      subtitle: `Payment attachment - ${record.patientNumber || 'No patient number'}`
+    }));
+    return [...fileLinks, ...paymentLinks];
+  });
+
+  if (!attachments.length) {
+    alert('No attachments found for the selected/filtered lab cases.');
+    return;
+  }
+
+  const pdfDoc = await PDFDocument.create();
+  for (const attachment of attachments) {
+    await addAttachmentPage(pdfDoc, attachment);
+  }
+  await savePdfDocument(pdfDoc, `lab_case_attachments_${new Date().toISOString().split('T')[0]}.pdf`);
+};
 
   return (
     <div className="space-y-6 animate-fade-in text-left font-sans">
-      {viewItem && <ViewModal caseItem={viewItem} onClose={() => setViewItem(null)} userRole={user?.role} onUpdateStatus={handleUpdateStatus} setPreviewFile={setPreviewFile} />}
-      {modal && (
-        <LabCaseModal 
-          caseItem={editItem} 
-          labs={labs} 
-          dentists={dentists}
-          customCategories={customProsthesisCategories}
-          onManageCategories={() => setShowCatManager(true)}
-          onClose={() => { setModal(null); setEditItem(null); }} 
-          onSave={handleSave} 
-          setPreviewFile={setPreviewFile} 
-        />
-      )}
-      {showBatchModal && <BatchPaymentModal selectedItems={cases.filter(c => selectedIDs.includes(c.id))} onClose={() => setShowBatchModal(false)} onSave={handleBatchSave} />}
+      {viewItem && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 overflow-y-auto max-h-[90vh]">
+
+      <ViewModal
+        caseItem={viewItem}
+        onClose={() => setViewItem(null)}
+        userRole={user?.role}
+        onUpdateStatus={handleUpdateStatus}
+        setPreviewFile={setPreviewFile}
+      />
+
+    </div>
+  </div>
+)}
+   {modal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4">
+      <LabCaseModal
+        caseItem={editItem}
+        onClose={() => {
+          setModal(null);
+          setEditItem(null);
+        }}
+        onSave={handleSave}
+        labs={labs}
+        dentists={dentists}
+        customCategories={customProsthesisCategories}
+        onManageCategories={() => setShowCatManager(true)}
+      />
+    </div>
+  </div>
+)}
+      {showBatchModal && (
+  <BatchPaymentModal
+    selectedCases={cases.filter(c => selectedIDs.includes(c.id))}
+    onClose={() => setShowBatchModal(false)}
+    onSave={handleBatchSave}
+  />
+)}
       {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
       
       {loading && (
@@ -1263,14 +1815,31 @@ export default function LabCases() {
               <option value="Tubli Branch">Tubli Branch</option>
               <option value="Manama Branch">Manama Branch</option>
            </select>
-           <div className="flex gap-2 w-full sm:w-auto">
-             <button onClick={handleExportExcel} className="w-full sm:w-auto flex-1 btn-ghost border border-gray-200 text-[11px] font-semibold py-2 px-3 sm:px-4 rounded-xl flex items-center justify-center gap-1.5 bg-white min-w-0">
-                <Download size={13} className="text-gray-600 shrink-0" /> <span className="hidden sm:inline">Export Excel</span><span className="sm:hidden">Excel</span>
-             </button>
-             <button onClick={handleExportPDF} className="w-full sm:w-auto flex-1 btn-ghost border border-gray-200 text-[11px] font-semibold py-2 px-3 sm:px-4 rounded-xl flex items-center justify-center gap-1.5 bg-white min-w-0">
-                <Download size={13} className="text-gray-600 shrink-0" /> <span className="hidden sm:inline">Export PDF</span><span className="sm:hidden">PDF</span>
-             </button>
-           </div>
+          <div className="flex gap-3 w-full sm:w-auto">
+
+  {/* Excel Button */}
+  <button 
+    onClick={handleExportExcel}
+    className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 px-4 h-11 rounded-xl btn-export-excel text-xs font-bold shadow-md transition-all active:scale-95"
+  >
+    <FileSpreadsheet size={14} /> Excel
+  </button>
+
+  {/* PDF Button */}
+  <button 
+    onClick={handleExportPDF}
+    className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 px-4 h-11 rounded-xl btn-export-pdf text-xs font-bold shadow-md transition-all active:scale-95"
+  >
+    <FileText size={14} /> PDF
+  </button>
+  <button
+    onClick={handleExportAttachmentsPDF}
+    className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 px-4 h-11 rounded-xl btn-export-pdf text-xs font-bold shadow-md transition-all active:scale-95"
+  >
+    <FileText size={14} /> Attachments PDF
+  </button>
+
+</div>
         </div>
       </div>
 
@@ -1314,9 +1883,42 @@ export default function LabCases() {
               </select>
               <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={14} />
             </div>
+{/* Dentist Filter */}
+<div className="relative w-full sm:w-1/2 lg:w-auto min-w-0">
+  <select 
+    value={dentistFilter} 
+    onChange={e => setDentistFilter(e.target.value)}
+    className="h-11 w-full lg:min-w-[140px] appearance-none bg-gray-50/50 border border-gray-100 rounded-xl px-3 pr-8 text-[11px] font-bold text-gray-600"
+  >
+    <option value="All">All Dentists</option>
+    {dentists.map(d => (
+      <option key={d.id} value={`${d.firstName} ${d.lastName}`}>
+        {d.firstName} {d.lastName}
+      </option>
+    ))}
+  </select>
+  <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={14} />
+</div>
+
+{/* Lab Filter */}
+<div className="relative w-full sm:w-1/2 lg:w-auto min-w-0">
+  <select 
+    value={labFilter} 
+    onChange={e => setLabFilter(e.target.value)}
+    className="h-11 w-full lg:min-w-[140px] appearance-none bg-gray-50/50 border border-gray-100 rounded-xl px-3 pr-8 text-[11px] font-bold text-gray-600"
+  >
+    <option value="All">All Labs</option>
+    {labs.map(l => (
+      <option key={l.id} value={l.name}>
+        {l.name}
+      </option>
+    ))}
+  </select>
+  <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={14} />
+</div>
             {/* Date Range with Clarity */}
-            <div className="flex items-center gap-2">
-              <div className="relative group">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full lg:w-auto">
+              <div className="relative group min-w-0">
                 <span className="absolute -top-3 left-2 text-[8px] font-black text-gray-400 uppercase tracking-widest bg-white rounded-sm px-1.5 z-10 border border-gray-100/50">From</span>
                 <input
                   type="date"
@@ -1325,7 +1927,7 @@ export default function LabCases() {
                   className="h-11 w-full lg:min-w-[130px] bg-gray-50/50 border border-gray-100 rounded-xl px-3 text-[11px] font-bold text-gray-600 focus:ring-4 focus:ring-orange-500/5 focus:border-orange-500 outline-none transition-all cursor-pointer min-w-0 shadow-inner"
                 />
               </div>
-              <div className="relative group">
+              <div className="relative group min-w-0">
                 <span className="absolute -top-3 left-2 text-[8px] font-black text-gray-400 uppercase tracking-widest bg-white rounded-sm px-1.5 z-10 border border-gray-100/50">To</span>
                 <input
                   type="date"
@@ -1336,23 +1938,31 @@ export default function LabCases() {
               </div>
             </div>
             {/* Clear Filters */}
-            {(statusFilter !== 'All' || payFilter !== 'All' || branchFilter !== 'All' || dateFrom || dateTo) && (
+            {(statusFilter !== 'All' || payFilter !== 'All' || branchFilter !== 'All' || dentistFilter !== 'All' || labFilter !== 'All' || dateFrom || dateTo) && (
               <button
-                onClick={() => { setStatusFilter('All'); setPayFilter('All'); setBranchFilter('All'); setDateFrom(''); setDateTo(''); }}
-                className="h-11 px-4 rounded-xl text-[11px] font-bold text-rose-500 bg-rose-50 border border-rose-100 hover:bg-rose-100 transition-all whitespace-nowrap min-w-0 active:scale-95"
+                onClick={() => { 
+  setStatusFilter('All'); 
+  setPayFilter('All'); 
+  setBranchFilter('All'); 
+  setDentistFilter('All');   // ✅ ADD THIS
+  setLabFilter('All');       // ✅ ADD THIS
+  setDateFrom(''); 
+  setDateTo(''); 
+}}
+                className="h-11 px-4 rounded-xl text-[11px] font-bold text-rose-500 bg-rose-50 border border-rose-100 hover:bg-rose-100 transition-all whitespace-nowrap min-w-0 active:scale-95 w-full lg:w-auto"
               >
                 Clear Filters
               </button>
             )}
           </div>
-          <div className="flex gap-3 w-full lg:w-auto shrink-0 min-w-0">
+          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto shrink-0 min-w-0">
             {selectedIDs.length > 0 && checkPermission('payments', 'create') && (
               <button 
                 onClick={() => setShowBatchModal(true)}
                 className="w-full lg:w-auto px-6 h-11 rounded-xl bg-[#1C3756] hover:bg-[#152a42] text-white font-bold transition-all shadow-lg shadow-blue-900/10 flex items-center justify-center gap-2 text-xs active:scale-95 min-w-0"
               >
                 <Layers size={16} className="shrink-0" />
-                <span className="truncate">Batch Pay ({selectedIDs.length})</span>
+                <span className="truncate">Batch Pay ({selectedIDs.length}) • BHD {selectedTotal.toFixed(3)}</span>
               </button>
             )}
             {checkPermission('lab_cases', 'create') && (
@@ -1368,31 +1978,31 @@ export default function LabCases() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'TOTAL CASES', value: cases.length, color: 'blue', icon: Layers, gradient: 'from-blue-50 to-indigo-50/50' },
           { label: 'PENDING', value: cases.filter(c => c.status === 'Pending').length, color: 'orange', icon: Clock, gradient: 'from-orange-50 to-amber-50/50' },
           { label: 'COMPLETE', value: cases.filter(c => c.status === 'Completed').length, color: 'emerald', icon: CheckCircle2, gradient: 'from-emerald-50 to-teal-50/50' },
           { label: 'UNPAID CASES', value: cases.filter(c => c.paymentStatus === 'Unpaid').length, color: 'rose', icon: CreditCard, gradient: 'from-rose-50 to-pink-50/50' }
         ].map(stat => (
-          <div key={stat.label} className={`relative overflow-hidden group p-5 rounded-[1.5rem] border border-white shadow-lg shadow-gray-100/30 transition-all duration-300 hover:scale-[1.01] hover:shadow-xl hover:shadow-gray-200/40 bg-gradient-to-br ${stat.gradient} text-left`}>
+          <div key={stat.label} className={`relative overflow-hidden group px-5 py-3 rounded-[1.25rem] border border-white shadow-lg shadow-gray-100/30 transition-all duration-300 hover:scale-[1.005] hover:shadow-xl hover:shadow-gray-200/40 bg-gradient-to-br ${stat.gradient} text-left`}>
              <div className="relative z-10 flex flex-col justify-between h-full">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-3 transition-colors ${
+                <div className={`w-7 h-7 rounded-xl flex items-center justify-center mb-2 transition-colors ${
                   stat.color === 'blue' ? 'bg-blue-100 text-blue-600' :
                   stat.color === 'orange' ? 'bg-orange-100 text-orange-600' :
                   stat.color === 'emerald' ? 'bg-emerald-100 text-emerald-600' :
                   'bg-rose-100 text-rose-600'
                 }`}>
-                   <stat.icon size={16} />
+                   <stat.icon size={14} />
                 </div>
                 <div>
-                   <p className={`text-[9px] font-bold uppercase tracking-[0.1em] mb-0.5 opacity-60 ${
+                   <p className={`text-[8px] font-bold uppercase tracking-[0.1em] mb-0 opacity-60 ${
                      stat.color === 'blue' ? 'text-blue-900' :
                      stat.color === 'orange' ? 'text-orange-900' :
                      stat.color === 'emerald' ? 'text-emerald-900' :
                      'text-rose-900'
                    }`}>{stat.label}</p>
-                   <p className={`text-2xl font-black tracking-tight ${
+                   <p className={`text-xl font-black tracking-tight leading-none ${
                      stat.color === 'blue' ? 'text-blue-900' :
                      stat.color === 'orange' ? 'text-orange-900' :
                      stat.color === 'emerald' ? 'text-emerald-900' :
@@ -1401,23 +2011,23 @@ export default function LabCases() {
                 </div>
              </div>
              {/* Background Decorative Icon */}
-             <div className={`absolute -right-3 -bottom-3 opacity-[0.03] group-hover:opacity-[0.06] group-hover:scale-105 transition-all duration-500 pointer-events-none ${
+             <div className={`absolute -right-3 -bottom-5 opacity-[0.03] group-hover:opacity-[0.06] group-hover:scale-105 transition-all duration-500 pointer-events-none ${
                stat.color === 'blue' ? 'text-blue-900' :
                stat.color === 'orange' ? 'text-orange-900' :
                stat.color === 'emerald' ? 'text-emerald-900' :
                'text-rose-900'
              }`}>
-                <stat.icon size={100} />
+                <stat.icon size={72} />
              </div>
           </div>
         ))}
       </div>
 
       {/* Table / Cards View */}
-      <div className="mt-6">
+      <div className="mt-6 overflow-hidden">
         {/* Desktop Table */}
         <div className="hidden lg:block card p-0 overflow-hidden border-gray-100 shadow-sm rounded-3xl min-w-0">
-          <div className="table-container">
+          <div className="table-container overflow-auto max-h-[calc(100vh-260px)]">
             <table className="table w-full">
               <thead>
                 <tr className="bg-gray-50/50">
@@ -1428,78 +2038,109 @@ export default function LabCases() {
                       checked={filtered.length > 0 && selectedIDs.length === filtered.length}
                       onChange={toggleSelectAll}
                     />
-                  </th>
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase text-left">Patient Name</th>
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase text-left">Prosthesis</th>
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase text-left">Status</th>
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase text-left">Amount Due</th>
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase text-left">Payment</th>
-                  <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase text-right">Actions</th>
-                </tr>
+                </th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Patient Name</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Laboratory</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Prosthesis</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Status</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Due Date</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Amount Due</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Payment</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-right">Actions</th>
+</tr>
               </thead>
-              <tbody className="divide-y divide-gray-50 text-left">
-                {filtered.length === 0 && (
-                  <tr><td colSpan={7} className="text-center text-gray-400 py-20 font-medium">No lab cases matching your criteria found.</td></tr>
-                )}
-                {filtered.map(c => (
-                  <tr key={c.id} className={`transition-colors group ${selectedIDs.includes(c.id) ? 'bg-orange-50/20' : 'hover:bg-gray-50/20'}`}>
-                    <td className="text-center px-4 py-3">
-                      <input 
-                        type="checkbox" 
-                        className="w-4 h-4 rounded-full border-gray-300 text-primary focus:ring-primary cursor-pointer transition-all active:scale-90" 
-                        checked={selectedIDs.includes(c.id)}
-                        onChange={() => toggleSelect(c.id)}
-                      />
-                    </td>
-                    <td className="px-5 py-3 cursor-pointer" onClick={() => setViewItem(c)}>
-                      <p className="font-bold text-gray-900 text-xs tracking-tight">{c.patientNumber}</p>
-                      <p className="text-[10px] text-gray-500 mt-0.5 font-medium">{c.patientName}</p>
-                    </td>
-                    <td className="px-5 py-3" onClick={() => setViewItem(c)}>
-                      <span className="bg-gray-100 px-2 py-0.5 rounded-lg text-[9px] font-bold text-gray-600 border border-gray-200/50">{c.prosthesis}</span>
-                      <span className="block text-[9px] text-gray-400 mt-1.5 font-medium">{c.branch}</span>
-                    </td>
-                    <td className="px-5 py-3">
-                       <span className={`px-2 py-1 rounded-xl text-[9px] font-bold border ${c.status === 'Completed' ? 'bg-teal-50 text-teal-600 border-teal-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
-                          {c.status}
-                       </span>
-                    </td>
-                    <td className="px-5 py-3">
-                      <p className="font-bold text-gray-900 text-xs">BHD {(parseFloat(c.totalCost || 0) - parseFloat(c.amountPaid || 0)).toFixed(2)}</p>
-                      <p className="text-[9px] text-gray-400 mt-0.5 font-medium">Total: BHD {parseFloat(c.totalCost || 20).toFixed(2)}</p>
-                    </td>
-                    <td className="px-5 py-3">
-                       <div className="flex flex-col items-start gap-0.5">
-                          <span className={`px-3 py-0.5 rounded-xl text-[9px] font-bold ${
-                            c.paymentStatus === 'Paid' ? 'bg-[#1C3756] text-white' : 
-                            c.paymentStatus === 'Partial' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
-                            'bg-rose-50 text-rose-600 border border-rose-100'
-                          }`}>
-                            {c.paymentStatus}
-                          </span>
-                          <p className="text-[9px] text-gray-400 mt-0.5 font-mono font-medium">{c.createdAt}</p>
-                       </div>
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => { console.log('View clicked:', c); setViewItem(c); }} title="View Detail" className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-50 rounded-lg transition-all border border-gray-100 shadow-sm bg-white">
-                            <Eye size={14} />
-                          </button>
-                          {checkPermission('lab_cases', 'update') && (
-                            <button onClick={() => { console.log('Edit clicked:', c); setEditItem(c); setModal('edit'); }} title="Edit Case" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all border border-gray-100 shadow-sm bg-white">
-                              <Edit2 size={14} />
-                            </button>
-                          )}
-                          {checkPermission('lab_cases', 'delete') && (
-                            <button onClick={() => setConfirmDelete(c.id)} title="Delete Case" className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all border border-gray-100 shadow-sm bg-white">
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              <tbody>
+  {filtered.length === 0 ? (
+    <tr>
+      <td colSpan={9} className="text-center text-gray-400 py-10">
+        No lab cases found.
+      </td>
+    </tr>
+  ) : (
+    filtered.map(c => (
+  <tr key={c.id} className="hover:bg-gray-50">
+
+    {/* ✅ CHECKBOX COLUMN (FIX) */}
+    <td className="px-4 py-2">
+  <input
+    type="checkbox"
+    className="w-4 h-4"
+    checked={selectedIDs.includes(c.id)}
+    onChange={() => toggleSelect(c.id)}
+  />
+</td>
+
+    {/* Patient */}
+    <td className="px-4 py-2">
+      <div className="font-normal text-sm">{c.patientName}</div>
+      <div className="text-xs text-gray-500">{c.patientNumber}</div>
+    </td>
+
+    {/* Laboratory */}
+    <td className="px-4 py-2">
+      <div className="flex items-center gap-3 min-w-0">
+        <LabLogo logoUrl={c.labLogoUrl} name={c.labName} />
+        <div className="min-w-0">
+          <div className="text-sm font-normal text-gray-800 truncate max-w-[180px]">{c.labName || 'Unknown Lab'}</div>
+          <div className="text-[10px] font-bold text-blue-900/50 uppercase tracking-widest">Laboratory</div>
+        </div>
+      </div>
+    </td>
+
+    {/* Prosthesis */}
+    <td className="px-4 py-2">{c.prosthesis}</td>
+
+    {/* Status */}
+    <td className="px-4 py-2">
+      <StatusBadge status={c.status} />
+    </td>
+
+    {/* Due Date */}
+    <td className="px-4 py-2 text-sm whitespace-nowrap">
+    {c.expectedDate
+  ? new Date(c.expectedDate).toLocaleString('en-GB')
+  : '-'}
+    </td>
+
+    {/* Amount */}
+    <td className="px-4 py-2">
+      {formatBHD(getCaseDueAmount(c))}
+    </td>
+
+    {/* Payment */}
+    <td className="px-4 py-2">
+      <PayBadge status={c.paymentStatus} />
+    </td>
+
+    {/* ACTIONS */}
+    <td className="px-4 py-2 text-right space-x-2">
+
+      <button type="button" onClick={() => setViewItem(c)}>👁</button>
+
+      <button
+        type="button"
+        onClick={() => {
+          console.log("EDIT CLICKED");
+          setEditItem(c);
+          setModal('edit');
+        }}
+      >
+        ✏️
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setConfirmDelete(c.id)}
+      >
+        🗑
+      </button>
+
+    </td>
+
+  </tr>
+))
+  )}
+</tbody>
             </table>
           </div>
         </div>
@@ -1530,6 +2171,14 @@ export default function LabCases() {
                 </div>
               </div>
 
+              <div className="flex items-center gap-3 mb-4 rounded-xl bg-blue-50/60 border border-blue-100 p-2">
+                <LabLogo logoUrl={c.labLogoUrl} name={c.labName} />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold text-blue-900/50 uppercase tracking-widest">Laboratory</p>
+                  <p className="text-xs font-black text-gray-800 truncate">{c.labName || 'Unknown Lab'}</p>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2 mb-4">
                 <span className="bg-gray-50 px-2.5 py-1 rounded-lg text-[10px] font-bold text-gray-600 border border-gray-100">{c.prosthesis}</span>
                 <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${c.status === 'Completed' ? 'bg-teal-50 text-teal-600 border-teal-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
@@ -1537,10 +2186,10 @@ export default function LabCases() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 py-3 border-t border-gray-50">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-3 border-t border-gray-50">
                 <div>
                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount Due</p>
-                   <p className="font-black text-gray-900 text-sm">BHD {(parseFloat(c.totalCost || 0) - parseFloat(c.amountPaid || 0)).toFixed(2)}</p>
+                   <p className="font-black text-gray-900 text-sm">{formatBHD(getCaseDueAmount(c))}</p>
                 </div>
                 <div>
                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Payment</p>
@@ -1574,3 +2223,5 @@ export default function LabCases() {
     </div>
   );
 }
+
+

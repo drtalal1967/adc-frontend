@@ -25,10 +25,44 @@ const FilePreviewModal = ({ file, onClose }) => {
     ? (file.match(/\.pdf$/i) || file.includes('application/pdf'))
     : (isApiDoc ? file.fileUrl.match(/\.pdf$/i) : (file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf')));
 
-  // For non-image, non-PDF files or PDFs on cross-origin, open in new tab
-  const handleOpenInNewTab = (e) => {
+  const handleOpenInNewTab = async (e) => {
     e.stopPropagation();
-    window.open(fileUrl, '_blank', 'noopener,noreferrer');
+
+    if (!isPDF) {
+      window.open(fileUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    const newTab = window.open('', '_blank');
+    if (newTab) {
+      newTab.opener = null;
+      newTab.document.write('<!doctype html><title>Opening PDF...</title><body style="font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#1C3756;font-weight:700;">Opening PDF...</body>');
+      newTab.document.close();
+    }
+
+    try {
+      const response = await fetch(fileUrl, { mode: 'cors' });
+      if (!response.ok) throw new Error('Unable to load PDF');
+
+      const blob = await response.blob();
+      const pdfBlob = blob.type === 'application/pdf'
+        ? blob
+        : new Blob([blob], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(pdfBlob);
+
+      if (newTab) {
+        newTab.location.replace(blobUrl);
+      } else {
+        window.location.href = blobUrl;
+      }
+    } catch (error) {
+      console.warn('Opening PDF inline failed, falling back to original URL:', error);
+      if (newTab) {
+        newTab.location.replace(fileUrl);
+      } else {
+        window.location.href = fileUrl;
+      }
+    }
   };
 
   return (
@@ -74,13 +108,31 @@ const FilePreviewModal = ({ file, onClose }) => {
             className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-scale-in"
           />
         ) : isPDF && !pdfError ? (
-          <embed
-            src={fileUrl}
-            type="application/pdf"
-            className="w-full h-full rounded-2xl animate-scale-in"
-            title={fileName}
-            onError={() => setPdfError(true)}
-          />
+          <>
+            <embed
+              src={fileUrl}
+              type="application/pdf"
+              className="w-full h-full rounded-2xl animate-scale-in"
+              title={fileName}
+              onError={() => setPdfError(true)}
+            />
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-wrap justify-center gap-3 bg-black/30 backdrop-blur-md rounded-2xl p-3 shadow-2xl">
+              <button
+                onClick={handleOpenInNewTab}
+                className="px-5 py-2.5 bg-white text-[#1C3756] border border-gray-200 font-bold rounded-xl shadow-lg hover:scale-105 transition-all flex items-center gap-2 text-sm"
+              >
+                <ExternalLink size={16} /> View in Browser
+              </button>
+              <a 
+                href={fileUrl} 
+                download={fileName}
+                onClick={e => e.stopPropagation()}
+                className="px-5 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl hover:scale-105 transition-all flex items-center gap-2 text-sm"
+              >
+                <Download size={16} /> Download
+              </a>
+            </div>
+          </>
         ) : (
           <div className="bg-white p-12 rounded-3xl flex flex-col items-center gap-6 shadow-2xl animate-scale-in">
             <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -97,7 +149,7 @@ const FilePreviewModal = ({ file, onClose }) => {
             <div className="flex gap-3">
               <button
                 onClick={handleOpenInNewTab}
-                className="px-8 py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-all flex items-center gap-2"
+                className="px-8 py-3 bg-white text-[#1C3756] border border-gray-200 font-bold rounded-xl shadow-lg hover:scale-105 transition-all flex items-center gap-2"
               >
                 <ExternalLink size={18} /> View in Browser
               </button>

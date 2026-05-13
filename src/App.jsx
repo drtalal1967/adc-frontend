@@ -21,35 +21,76 @@ import Settings from './pages/Settings';
 import Salaries from './pages/Salaries';
 import LabPayments from './pages/LabPayments';
 import LeaveBalanceManagement from './pages/LeaveBalanceManagement';
-import FinancialAnalytics from './pages/FinancialAnalytics';
 import WorkSchedule from './pages/WorkSchedule';
 import Documents from './pages/Documents';
+
+const PAGE_MODULES = {
+  '/dashboard': 'dashboard',
+  '/lab-cases': 'lab_cases',
+  '/expenses': 'expenses',
+  '/laboratories': 'laboratories',
+  '/vendors': 'vendors',
+  '/financials': 'financials',
+  '/employees': 'employees',
+  '/schedule': 'schedule',
+  '/leaves': 'leaves',
+  '/leave-balance': 'leave_balance',
+  '/reports': 'reports',
+  '/reminders': 'reminders',
+  '/settings': 'settings',
+  '/salaries': 'salaries',
+  '/lab-payments': 'payments',
+  '/work-schedule': 'work_schedule',
+  '/documents': 'documents',
+};
+
+function AccessDenied() {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center p-8">
+      <div className="max-w-md text-center bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
+        <h1 className="text-2xl font-bold text-gray-900">Access denied</h1>
+        <p className="text-sm text-gray-500 mt-2">Your role does not have permission to view this page.</p>
+      </div>
+    </div>
+  );
+}
+
+function ProtectedPage({ module, children }) {
+  const { checkPermission } = useAuth();
+  return checkPermission(module, 'view') ? children : <AccessDenied />;
+}
 
 function ProtectedRoutes() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
 
+  const page = (path, element) => (
+    <ProtectedPage module={PAGE_MODULES[path]}>
+      {element}
+    </ProtectedPage>
+  );
+
   return (
     <Layout>
       <Routes>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/lab-cases" element={<LabCases />} />
-        <Route path="/expenses" element={<Expenses />} />
-        <Route path="/laboratories" element={<Laboratories />} />
-        <Route path="/vendors" element={<Vendors />} />
-        <Route path="/financials" element={<Financials />} />
-        <Route path="/analytics" element={<FinancialAnalytics />} />
-        <Route path="/employees" element={<Employees />} />
-        <Route path="/schedule" element={<Schedule />} />
-        <Route path="/leaves" element={<Leaves />} />
-        <Route path="/leave-balance" element={<LeaveBalanceManagement />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/reminders" element={<Reminders />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/salaries" element={<Salaries />} />
-        <Route path="/lab-payments" element={<LabPayments />} />
-        <Route path="/work-schedule" element={<WorkSchedule />} />
-        <Route path="/documents" element={<Documents />} />
+        <Route path="/dashboard" element={page('/dashboard', <Dashboard />)} />
+        <Route path="/lab-cases" element={page('/lab-cases', <LabCases />)} />
+        <Route path="/expenses" element={page('/expenses', <Expenses />)} />
+        <Route path="/laboratories" element={page('/laboratories', <Laboratories />)} />
+        <Route path="/vendors" element={page('/vendors', <Vendors />)} />
+        <Route path="/financials" element={page('/financials', <Financials />)} />
+        <Route path="/analytics" element={<Navigate to="/financials" replace />} />
+        <Route path="/employees" element={page('/employees', <Employees />)} />
+        <Route path="/schedule" element={page('/schedule', <Schedule />)} />
+        <Route path="/leaves" element={page('/leaves', <Leaves />)} />
+        <Route path="/leave-balance" element={page('/leave-balance', <LeaveBalanceManagement />)} />
+        <Route path="/reports" element={page('/reports', <Reports />)} />
+        <Route path="/reminders" element={page('/reminders', <Reminders />)} />
+        <Route path="/settings" element={page('/settings', <Settings />)} />
+        <Route path="/salaries" element={page('/salaries', <Salaries />)} />
+        <Route path="/lab-payments" element={page('/lab-payments', <LabPayments />)} />
+        <Route path="/work-schedule" element={page('/work-schedule', <WorkSchedule />)} />
+        <Route path="/documents" element={page('/documents', <Documents />)} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Layout>

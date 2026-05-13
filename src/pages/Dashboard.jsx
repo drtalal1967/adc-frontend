@@ -12,7 +12,12 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const COLORS = ['#2F5D90', '#F58220', '#A5C3DF', '#10B981', '#F59E0B', '#EF4444'];
+const COLORS = ['#2C4697', '#F58220', '#DDE8F7', '#2C4697', '#F58220', '#F58220'];
+
+const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
 
 function StatCard({ icon: Icon, label, value, change, color, gradient }) {
   return (
@@ -94,10 +99,10 @@ function AdminDashboard({ stats }) {
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
         <StatCard icon={Clock} label="Pending Lab Cases" value={pendingCases} change="+2 this week" gradient="bg-gradient-teal" />
         <StatCard icon={AlertCircle} label="Unpaid Lab Cases" value={unpaidCases} gradient="bg-gradient-to-br from-amber-400 to-orange-500" />
-        <StatCard icon={Receipt} label="Unpaid Expenses" value={`BHD ${Number(totalUnpaidExpenses).toFixed(0)}`} gradient="bg-gradient-to-br from-red-400 to-red-600" />
-        <StatCard icon={TrendingUp} label="Monthly Income" value={`BHD ${monthlyIncome.toFixed(0)}`} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" />
-        <StatCard icon={DollarSign} label="Monthly Expenses" value={`BHD ${monthlyExpenses.toFixed(0)}`} gradient="bg-gradient-to-br from-blue-400 to-blue-600" />
-        <StatCard icon={Activity} label="Net Profit" value={`BHD ${profit.toFixed(0)}`} gradient="bg-gradient-to-br from-purple-400 to-purple-600" />
+        <StatCard icon={Receipt} label="Unpaid Expenses" value={`BHD ${formatBHD(totalUnpaidExpenses)}`} gradient="bg-gradient-to-br from-red-400 to-red-600" />
+        <StatCard icon={TrendingUp} label="Monthly Income" value={`BHD ${formatBHD(monthlyIncome)}`} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" />
+        <StatCard icon={DollarSign} label="Monthly Expenses" value={`BHD ${formatBHD(monthlyExpenses)}`} gradient="bg-gradient-to-br from-blue-400 to-blue-600" />
+        <StatCard icon={Activity} label="Net Profit" value={`BHD ${formatBHD(profit)}`} gradient="bg-gradient-to-br from-purple-400 to-purple-600" />
       </div>
 
       {/* Charts Row 1 */}
@@ -114,20 +119,20 @@ function AdminDashboard({ stats }) {
             <AreaChart data={REVENUE_DATA} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#2F5D90" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#2F5D90" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#2C4697" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#2C4697" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="exp" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#EF4444" stopOpacity={0.12} />
-                  <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#F58220" stopOpacity={0.12} />
+                  <stop offset="95%" stopColor="#F58220" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
-              <Tooltip formatter={v => [`BHD ${(v || 0).toLocaleString()}`, '']} contentStyle={{ borderRadius: 12, border: '1px solid #f0f0f0', fontSize: 12 }} />
-              <Area type="monotone" dataKey="revenue" stroke="#2F5D90" strokeWidth={2} fill="url(#rev)" name="Revenue" />
-              <Area type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={2} fill="url(#exp)" name="Expenses" />
+              <Tooltip formatter={v => [`BHD ${formatBHD(v)}`, '']} contentStyle={{ borderRadius: 12, border: '1px solid #f0f0f0', fontSize: 12 }} />
+              <Area type="monotone" dataKey="revenue" stroke="#2C4697" strokeWidth={2} fill="url(#rev)" name="Revenue" />
+              <Area type="monotone" dataKey="expenses" stroke="#F58220" strokeWidth={2} fill="url(#exp)" name="Expenses" />
               <Legend wrapperStyle={{ fontSize: 11 }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -145,14 +150,14 @@ function AdminDashboard({ stats }) {
             <BarChart data={profitData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2F5D90" />
+                  <stop offset="0%" stopColor="#2C4697" />
                   <stop offset="100%" stopColor="#F58220" />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
-              <Tooltip formatter={v => [`BHD ${(v || 0).toLocaleString()}`, 'Profit']} contentStyle={{ borderRadius: 12, border: '1px solid #f0f0f0', fontSize: 12 }} />
+              <Tooltip formatter={v => [`BHD ${formatBHD(v)}`, 'Profit']} contentStyle={{ borderRadius: 12, border: '1px solid #f0f0f0', fontSize: 12 }} />
               <Bar dataKey="profit" fill="url(#profitGrad)" radius={[6, 6, 0, 0]} name="Profit" />
             </BarChart>
           </ResponsiveContainer>
@@ -312,8 +317,8 @@ function ManagerDashboard({ stats }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Clock} label="Pending Cases" value={pending} gradient="bg-gradient-teal" />
         <StatCard icon={AlertCircle} label="Unpaid Lab Cases" value={unpaid} gradient="bg-gradient-to-br from-amber-400 to-orange-500" />
-        <StatCard icon={Receipt} label="Monthly Expenses" value={`BHD ${Number(expenses || 0).toFixed(0)}`} gradient="bg-gradient-to-br from-red-400 to-red-600" />
-        <StatCard icon={TrendingUp} label="Monthly Income" value={`BHD ${monthlyIncome.toFixed(0)}`} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" />
+        <StatCard icon={Receipt} label="Monthly Expenses" value={`BHD ${formatBHD(expenses)}`} gradient="bg-gradient-to-br from-red-400 to-red-600" />
+        <StatCard icon={TrendingUp} label="Monthly Income" value={`BHD ${formatBHD(monthlyIncome)}`} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" />
       </div>
       <div className="card">
         <h3 className="font-semibold text-gray-800 text-sm mb-4">Revenue vs Expenses</h3>
@@ -321,16 +326,16 @@ function ManagerDashboard({ stats }) {
           <AreaChart data={REVENUE_DATA} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="rev2" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#2F5D90" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#2F5D90" stopOpacity={0} />
+                <stop offset="5%" stopColor="#2C4697" stopOpacity={0.15} />
+                <stop offset="95%" stopColor="#2C4697" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
-            <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #f0f0f0', fontSize: 12 }} />
-            <Area type="monotone" dataKey="revenue" stroke="#2F5D90" strokeWidth={2} fill="url(#rev2)" name="Revenue" />
-            <Area type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={2} fill="none" name="Expenses" />
+            <Tooltip formatter={v => [`BHD ${formatBHD(v)}`, '']} contentStyle={{ borderRadius: 12, border: '1px solid #f0f0f0', fontSize: 12 }} />
+            <Area type="monotone" dataKey="revenue" stroke="#2C4697" strokeWidth={2} fill="url(#rev2)" name="Revenue" />
+            <Area type="monotone" dataKey="expenses" stroke="#F58220" strokeWidth={2} fill="none" name="Expenses" />
             <Legend wrapperStyle={{ fontSize: 11 }} />
           </AreaChart>
         </ResponsiveContainer>
@@ -442,9 +447,9 @@ function AccountantDashboard({ stats }) {
         <p className="section-subtitle">Financial overview</p>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard icon={TrendingUp} label="Monthly Revenue" value={`BHD ${monthlyIncome.toFixed(0)}`} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" />
-        <StatCard icon={Receipt} label="Monthly Expenses" value={`BHD ${Number(stats.unpaidExpenses || 0).toFixed(0)}`} gradient="bg-gradient-to-br from-red-400 to-red-600" />
-        <StatCard icon={DollarSign} label="Net Profit" value={`BHD ${profit.toFixed(0)}`} gradient="bg-gradient-teal" />
+        <StatCard icon={TrendingUp} label="Monthly Revenue" value={`BHD ${formatBHD(monthlyIncome)}`} gradient="bg-gradient-to-br from-emerald-400 to-emerald-600" />
+        <StatCard icon={Receipt} label="Monthly Expenses" value={`BHD ${formatBHD(stats.unpaidExpenses)}`} gradient="bg-gradient-to-br from-red-400 to-red-600" />
+        <StatCard icon={DollarSign} label="Net Profit" value={`BHD ${formatBHD(profit)}`} gradient="bg-gradient-teal" />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="card">
@@ -453,16 +458,16 @@ function AccountantDashboard({ stats }) {
             <AreaChart data={REVENUE_DATA} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="rev3" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0EA5A4" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#0EA5A4" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#2C4697" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#2C4697" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
-              <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
-              <Area type="monotone" dataKey="revenue" stroke="#0EA5A4" strokeWidth={2} fill="url(#rev3)" name="Revenue" />
-              <Area type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={2} fill="none" name="Expenses" />
+              <Tooltip formatter={v => [`BHD ${formatBHD(v)}`, '']} contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+              <Area type="monotone" dataKey="revenue" stroke="#2C4697" strokeWidth={2} fill="url(#rev3)" name="Revenue" />
+              <Area type="monotone" dataKey="expenses" stroke="#F58220" strokeWidth={2} fill="none" name="Expenses" />
               <Legend wrapperStyle={{ fontSize: 11 }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -473,14 +478,14 @@ function AccountantDashboard({ stats }) {
             <BarChart data={profitData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="profitGrad2" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2F5D90" />
-                  <stop offset="100%" stopColor="#4B86BF" />
+                  <stop offset="0%" stopColor="#2C4697" />
+                  <stop offset="100%" stopColor="#5F86D0" />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `${v/1000}K`} />
-              <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+              <Tooltip formatter={v => [`BHD ${formatBHD(v)}`, '']} contentStyle={{ borderRadius: 12, fontSize: 12 }} />
               <Bar dataKey="profit" fill="url(#profitGrad2)" radius={[6, 6, 0, 0]} name="Profit" />
             </BarChart>
           </ResponsiveContainer>

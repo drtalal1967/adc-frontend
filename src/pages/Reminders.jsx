@@ -3,6 +3,7 @@ import { Bell, AlertTriangle, Calendar, Clock, CheckCircle2, Info, Settings as S
 import API, { BACKEND_URL } from '../api';
 import FilePreviewModal from '../components/FilePreviewModal';
 import CategoryManagerModal from '../components/CategoryManagerModal';
+import { useAuth } from '../context/AuthContext';
 
 const BRANCHES = ['Manama Branch', 'Tubli Branch'];
 const DEFAULT_REMINDER_CATEGORIES = ['License Renewal', 'Visa Expiry', 'Equipment Service', 'Training', 'Work Permit', 'Others'];
@@ -373,6 +374,10 @@ function ViewReminderModal({ reminder, onClose }) {
 }
 
 export default function Reminders() {
+  const { checkPermission } = useAuth();
+  const canCreate = checkPermission('reminders', 'create');
+  const canUpdate = checkPermission('reminders', 'update');
+  const canDelete = checkPermission('reminders', 'delete');
   const [modal, setModal] = useState(false);
   const [editingReminder, setEditingReminder] = useState(null);
   const [viewingReminder, setViewingReminder] = useState(null);
@@ -498,13 +503,15 @@ export default function Reminders() {
           <p className="section-subtitle text-xs md:text-sm">Stay updated on critical license expiries and operational tasks</p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-          <button 
-            onClick={() => setModal(true)}
-            className="btn-outline w-full sm:w-auto justify-center py-2.5 text-sm transition-all hover:scale-105 active:scale-95"
-          >
-            <Plus size={16} /> Add Reminder
-          </button>
-          {reminders.length > 0 && (
+          {canCreate && (
+            <button 
+              onClick={() => setModal(true)}
+              className="btn-outline w-full sm:w-auto justify-center py-2.5 text-sm transition-all hover:scale-105 active:scale-95"
+            >
+              <Plus size={16} /> Add Reminder
+            </button>
+          )}
+          {reminders.length > 0 && canDelete && (
             <button 
               onClick={markAllRead}
               className="btn-primary w-full sm:w-auto justify-center py-2.5 text-sm shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95"
@@ -564,7 +571,7 @@ export default function Reminders() {
           </div>
         )}
       </div>
-      {modal && (
+        {modal && canCreate && (
           <CreateReminderModal 
             employees={employees}
             categories={customCategories}
@@ -573,7 +580,7 @@ export default function Reminders() {
             onSave={fetchData}
           />
         )}
-        {editingReminder && (
+        {editingReminder && canUpdate && (
           <CreateReminderModal 
             employees={employees}
             categories={customCategories}
@@ -643,22 +650,26 @@ export default function Reminders() {
                 >
                   <Eye size={18} />
                 </button>
-                {!reminder.isSystem && (
+                {!reminder.isSystem && (canUpdate || canDelete) && (
                   <>
-                    <button 
-                      onClick={() => setEditingReminder(reminder)}
-                      className="btn-ghost p-2.5 rounded-xl hover:bg-primary/10 text-gray-400 hover:text-primary transition-colors group-hover:opacity-100"
-                      title="Edit Reminder"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button 
-                      onClick={() => markRead(reminder.id)}
-                      className="btn-ghost p-2.5 rounded-xl hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition-colors group-hover:opacity-100"
-                      title="Delete Reminder"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    {canUpdate && (
+                      <button 
+                        onClick={() => setEditingReminder(reminder)}
+                        className="btn-ghost p-2.5 rounded-xl hover:bg-primary/10 text-gray-400 hover:text-primary transition-colors group-hover:opacity-100"
+                        title="Edit Reminder"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button 
+                        onClick={() => markRead(reminder.id)}
+                        className="btn-ghost p-2.5 rounded-xl hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition-colors group-hover:opacity-100"
+                        title="Delete Reminder"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
                   </>
                 )}
               </div>

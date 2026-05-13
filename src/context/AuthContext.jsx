@@ -69,6 +69,7 @@ export function AuthProvider({ children }) {
 
   const checkPermission = (module, action) => {
     if (!user || !user.permissions) return false;
+    if (user.role === 'admin') return true;
     const perm = user.permissions.find(p => p.module === module);
     if (!perm) return false;
     
