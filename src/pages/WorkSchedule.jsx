@@ -122,13 +122,20 @@ const toMinutes = (time = '') => {
 
 const isDoctorShift = (shift, employees = []) => {
   const employee = shift.employee || employees.find(e => String(e.id) === String(shift.employeeId));
-  const text = [
+  const fields = [
     employee?.jobTitle,
     employee?.specialization,
     employee?.user?.role,
     shift.employeeName,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return text.includes('doctor') || text.includes('dentist') || text.startsWith('dr.');
+  ].filter(Boolean).map(value => String(value).toLowerCase().trim());
+
+  return fields.some(field =>
+    field.includes('doctor') ||
+    field.includes('dentist') ||
+    field.includes('consultant') ||
+    field.includes('specialist') ||
+    field.startsWith('dr.')
+  );
 };
 
 const sortScheduleEntries = (items = [], employees = []) => (
