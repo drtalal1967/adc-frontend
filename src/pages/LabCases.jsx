@@ -324,7 +324,7 @@ useEffect(() => {
 
       setPayments((paymentsRes.data || []).map(p => ({
         id: p.id,
-        date: format(new Date(p.paymentDate), 'dd/mm/yyyy'),
+        date: format(new Date(p.paymentDate), 'dd/MM/yyyy'),
         amount: parseFloat(p.amount) || 0,
         method: p.paymentMethod,
         status: 'Paid', // Assuming any record here is a payment made
@@ -338,7 +338,7 @@ useEffect(() => {
   };
   const [newLog, setNewLog] = useState({
     type: 'Pickup',
-    date: format(new Date(), "dd/mm/yyyy'T'HH:mm"),
+    date: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
     notes: ''
   });
 
@@ -360,7 +360,7 @@ useEffect(() => {
 
       setNewLog({
         type: 'Pickup',
-        date: format(new Date(), "dd/mm/yyyy'T'HH:mm"),
+        date: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
         notes: ''
       });
     } catch (err) {
@@ -1362,7 +1362,7 @@ console.log("FORM DATA:", form);
   prosthesisType: form.prosthesis,
   labId: form.labId ? parseInt(form.labId) : undefined,
   dentistId: form.dentistId ? parseInt(form.dentistId) : undefined,
-  status: form.status?.toUpperCase(),
+  status: apiStatusMap[form.status] || String(form.status || 'Pending').toUpperCase().replace(/\s+/g, '_'),
   cost: parseFloat(form.totalCost) || 0,
   expectedDate: form.expectedDate || null,
 };
