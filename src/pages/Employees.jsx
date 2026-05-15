@@ -633,6 +633,13 @@ export default function Employees() {
   };
 
   const filteredEmployees = useMemo(() => {
+    const isDentist = (employee) => employee.role === 'dentist';
+    const employmentDateTime = (employee) => {
+      if (!employee.startDate) return Number.MAX_SAFE_INTEGER;
+      const time = new Date(`${employee.startDate}T00:00:00`).getTime();
+      return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+    };
+
     return employees.filter(e => {
       const matchesSearch =
         (e.name || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -648,6 +655,14 @@ export default function Employees() {
         (statusFilter === 'Former' && !isActive);
 
       return matchesSearch && matchesRole && matchesJob && matchesStatus;
+    }).sort((a, b) => {
+      const dentistDiff = Number(isDentist(b)) - Number(isDentist(a));
+      if (dentistDiff !== 0) return dentistDiff;
+
+      const dateDiff = employmentDateTime(a) - employmentDateTime(b);
+      if (dateDiff !== 0) return dateDiff;
+
+      return (a.name || '').localeCompare(b.name || '');
     });
   }, [employees, search, roleFilter, jobFilter, statusFilter]);
 
