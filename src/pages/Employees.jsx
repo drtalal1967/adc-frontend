@@ -1049,11 +1049,11 @@ export default function Employees() {
                 <tr key={e.id} className="hover:bg-gray-50/30 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-white shadow-soft border border-gray-100 overflow-hidden flex items-center justify-center ring-4 ring-primary/5">
+                      <div className="w-14 h-14 rounded-2xl bg-white shadow-soft border border-gray-100 overflow-hidden flex items-center justify-center ring-4 ring-primary/5">
                         {e.image ? (
                           <img src={e.image} alt={e.name} className="w-full h-full object-cover" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-primary font-black italic text-xs">
+                          <div className="w-full h-full flex items-center justify-center text-primary font-black italic text-base">
                             {e.name.charAt(0)}
                           </div>
                         )}
@@ -1122,11 +1122,11 @@ export default function Employees() {
           <div key={e.id} className="card p-4 space-y-4 relative group active:scale-[0.98] transition-all duration-150 border-gray-100 shadow-sm">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-white shadow-soft border border-gray-100 overflow-hidden flex items-center justify-center ring-4 ring-primary/5">
+                <div className="w-16 h-16 rounded-3xl bg-white shadow-soft border border-gray-100 overflow-hidden flex items-center justify-center ring-4 ring-primary/5">
                   {e.image ? (
                     <img src={e.image} alt={e.name} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-primary font-black italic">
+                    <div className="w-full h-full flex items-center justify-center text-primary font-black italic text-lg">
                       {e.name.charAt(0)}
                     </div>
                   )}
