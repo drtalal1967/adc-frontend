@@ -757,6 +757,15 @@ const selectedTotal = expenses
   const totalOutstanding = filtered.reduce((a, e) => a + (e.remainingAmount || 0), 0);
   const totalSettled = filtered.reduce((a, e) => a + (e.paidAmount || 0), 0);
 
+  useEffect(() => {
+    setPage(1);
+  }, [search, categoryFilter, payStatusFilter, branchFilterExp, vendorFilter, dateFromExp, dateToExp]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
+
   const handleSave = async (form) => {
     try {
       const payload = {
@@ -935,15 +944,6 @@ const selectedTotal = expenses
       });
     },
   });
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, categoryFilter, payStatusFilter, branchFilterExp, vendorFilter, dateFromExp, dateToExp]);
-
-  const paginated = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, page, pageSize]);
 
   // Totals
   const finalY = doc.lastAutoTable.finalY || 30;

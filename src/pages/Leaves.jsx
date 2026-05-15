@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import API from '../api';
+import API, { BACKEND_URL } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useLeaveContext } from '../context/LeaveContext';
 import { 
@@ -10,7 +10,6 @@ import {
   Clock, 
   CheckCircle2, 
   XCircle, 
-  FileText,
   AlertCircle,
   MessageSquare,
   ChevronRight,
@@ -25,6 +24,24 @@ const formatDisplayDate = (value) => {
   const date = new Date(value);
   if (isNaN(date.getTime())) return value;
   return date.toLocaleDateString('en-GB');
+};
+
+const getEmployeeName = (employee) => {
+  if (!employee) return 'Unknown';
+  return `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || 'Unknown';
+};
+
+const getInitials = (name) => name
+  .split(' ')
+  .filter(Boolean)
+  .map(part => part[0])
+  .join('')
+  .toUpperCase()
+  .slice(0, 2) || 'ST';
+
+const normalizeImageUrl = (url) => {
+  if (!url) return '';
+  return url.startsWith('http') ? url : `${BACKEND_URL}${url}`;
 };
 
 function RequestModal({ onClose, onSave, user }) {
@@ -358,6 +375,10 @@ export default function Leaves() {
       {/* Leave Cards */}
       <div className="space-y-4">
         {myLeaves.map((l, index) => (
+          (() => {
+            const employeeName = getEmployeeName(l.employee);
+            const profileImage = normalizeImageUrl(l.employee?.profileImageUrl || l.employee?.profileImage || l.employee?.image);
+            return (
           <div 
              key={l.id} 
              className="bg-white rounded-[2rem] p-5 border border-gray-100 shadow-xl shadow-gray-200/10 hover:shadow-2xl hover:shadow-gray-200/20 transition-all duration-300 flex flex-col lg:flex-row lg:items-center gap-5 group animate-slide-up relative overflow-hidden"
@@ -370,16 +391,20 @@ export default function Leaves() {
             } rounded-full -mr-16 -mt-16 blur-3xl opacity-50`} />
 
             <div className="flex items-center gap-4 flex-1 min-w-0 relative z-10">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
-                l.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-500 group-hover:bg-emerald-600 group-hover:text-white' :
-                l.status === 'REJECTED' ? 'bg-rose-50 text-rose-500 group-hover:bg-rose-600 group-hover:text-white' :
-                'bg-orange-50 text-orange-500 group-hover:bg-orange-600 group-hover:text-white'
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 overflow-hidden border-2 shadow-sm transition-all duration-300 ${
+                l.status === 'APPROVED' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                l.status === 'REJECTED' ? 'bg-rose-50 border-rose-100 text-rose-700' :
+                'bg-orange-50 border-orange-100 text-orange-700'
               }`}>
-                <FileText size={20} />
+                {profileImage ? (
+                  <img src={profileImage} alt={employeeName} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-sm font-black tracking-tight">{getInitials(employeeName)}</span>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 mb-1">
-                  <p className="font-extrabold text-gray-900 text-base tracking-tight truncate">{l.employee ? `${l.employee.firstName} ${l.employee.lastName}` : 'Unknown'}</p>
+                  <p className="font-extrabold text-gray-900 text-base tracking-tight truncate">{employeeName}</p>
                   <span className="px-2.5 py-0.5 bg-gray-100 text-gray-500 text-[9px] font-black uppercase tracking-widest rounded-lg">{l.employee?.role || 'Staff'}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 font-medium">
@@ -470,6 +495,8 @@ export default function Leaves() {
               </div>
             </div>
           </div>
+            );
+          })()
         ))}
 
         {myLeaves.length === 0 && (
