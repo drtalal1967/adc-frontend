@@ -178,6 +178,10 @@ export default function Leaves() {
   const [actionModal, setActionModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [myBalance, setMyBalance] = useState(null);
+  const [employeeFilter, setEmployeeFilter] = useState('All');
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState('All');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -275,6 +279,20 @@ export default function Leaves() {
 
   const activeEmpId = user.employeeId || employees.find(e => e.userId === user.id)?.id;
   const myLeaves = isEmployee ? leaves.filter(l => Number(l.employeeId) === Number(activeEmpId)) : leaves;
+  const displayLeaveType = (type) => String(type || '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, char => char.toUpperCase());
+  const availableLeaveTypes = Array.from(new Set(myLeaves.map(l => l.leaveType).filter(Boolean))).sort();
+  const filteredLeaves = myLeaves.filter(l => {
+    const matchEmployee = employeeFilter === 'All' || Number(l.employeeId) === Number(employeeFilter);
+    const matchType = leaveTypeFilter === 'All' || l.leaveType === leaveTypeFilter;
+    const start = String(l.startDate || '').slice(0, 10);
+    const end = String(l.endDate || '').slice(0, 10);
+    const matchFrom = !dateFrom || !end || end >= dateFrom;
+    const matchTo = !dateTo || !start || start <= dateTo;
+    return matchEmployee && matchType && matchFrom && matchTo;
+  });
 
   const STATUS_CONFIG = {
     PENDING: { badge: 'bg-amber-100 text-amber-600', dot: 'bg-amber-400', icon: <Clock size={14} /> },
@@ -283,9 +301,9 @@ export default function Leaves() {
   };
 
   const STATS = [
-    { label: 'Pending', count: myLeaves.filter(l => l.status === 'PENDING').length, color: 'text-amber-500', accent: 'bg-amber-500', icon: <Clock size={24} /> },
-    { label: 'Approved', count: myLeaves.filter(l => l.status === 'APPROVED').length, color: 'text-emerald-500', accent: 'bg-emerald-500', icon: <CheckCircle2 size={24} /> },
-    { label: 'Rejected', count: myLeaves.filter(l => l.status === 'REJECTED').length, color: 'text-red-500', accent: 'bg-red-500', icon: <XCircle size={24} /> },
+    { label: 'Pending', count: filteredLeaves.filter(l => l.status === 'PENDING').length, color: 'text-amber-500', accent: 'bg-amber-500', icon: <Clock size={24} /> },
+    { label: 'Approved', count: filteredLeaves.filter(l => l.status === 'APPROVED').length, color: 'text-emerald-500', accent: 'bg-emerald-500', icon: <CheckCircle2 size={24} /> },
+    { label: 'Rejected', count: filteredLeaves.filter(l => l.status === 'REJECTED').length, color: 'text-red-500', accent: 'bg-red-500', icon: <XCircle size={24} /> },
   ];
 
   const EMPLOYEE_BALANCES = isEmployee && myBalance ? [
@@ -313,7 +331,7 @@ export default function Leaves() {
           <h1 className="text-2xl font-black text-gray-800 tracking-tight leading-none">{canApprove ? 'Leave Requests' : 'My Leave Requests'}</h1>
           <p className="text-sm text-gray-500 mt-1.5 font-medium">
             {canApprove
-              ? `${leaves.filter(l => l.status === 'PENDING').length} pending requests`
+              ? `${filteredLeaves.filter(l => l.status === 'PENDING').length} pending requests`
               : 'Request leave and track your own approvals'}
           </p>
         </div>
@@ -322,6 +340,54 @@ export default function Leaves() {
             <Plus size={18} /> Request Leave
           </button>
         )}
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-[1.5rem] p-4 shadow-sm">
+        <div className={`grid grid-cols-1 ${canApprove ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-3`}>
+          {canApprove && (
+            <select
+              value={employeeFilter}
+              onChange={e => setEmployeeFilter(e.target.value)}
+              className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="All">All Employees</option>
+              {employees.map(employee => (
+                <option key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName}</option>
+              ))}
+            </select>
+          )}
+          <select
+            value={leaveTypeFilter}
+            onChange={e => setLeaveTypeFilter(e.target.value)}
+            className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="All">All Leave Types</option>
+            {availableLeaveTypes.map(type => (
+              <option key={type} value={type}>{displayLeaveType(type)}</option>
+            ))}
+          </select>
+          <div className="relative">
+            <span className="absolute -top-2 left-4 bg-white px-1 text-[9px] font-black uppercase tracking-widest text-gray-400">From</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="h-12 w-full rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              aria-label="From date"
+            />
+          </div>
+          <div className="relative">
+            <span className="absolute -top-2 left-4 bg-white px-1 text-[9px] font-black uppercase tracking-widest text-gray-400">To</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              min={dateFrom || undefined}
+              className="h-12 w-full rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              aria-label="To date"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Stats */}
@@ -374,7 +440,7 @@ export default function Leaves() {
 
       {/* Leave Cards */}
       <div className="space-y-4">
-        {myLeaves.map((l, index) => (
+        {filteredLeaves.map((l, index) => (
           (() => {
             const employeeName = getEmployeeName(l.employee);
             const profileImage = normalizeImageUrl(l.employee?.profileImageUrl || l.employee?.profileImage || l.employee?.image);
@@ -414,7 +480,7 @@ export default function Leaves() {
                         l.status === 'REJECTED' ? 'bg-rose-500' : 
                         'bg-orange-500'
                       }`} />
-                      {l.leaveType} Leave
+                      {displayLeaveType(l.leaveType)} Leave
                    </div>
                    <div className="flex items-center gap-1.5">
                       <Calendar size={14} className="text-gray-400 group-hover:text-gray-600 transition-colors" />
@@ -499,7 +565,7 @@ export default function Leaves() {
           })()
         ))}
 
-        {myLeaves.length === 0 && (
+        {filteredLeaves.length === 0 && (
           <div className="py-20 text-center animate-fade-in">
              <div className="w-20 h-20 bg-gray-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-gray-300">
                 <AlertCircle size={40} />
