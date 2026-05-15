@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Plus, Trash2, Edit2, CalendarDays, Clock, X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const DAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+const JS_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const toLocalDateKey = (value) => {
   if (!value) return '';
@@ -19,11 +20,17 @@ const formatDate = (dateStr) => {
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
 };
 
+const dateKeyToLocalDate = (dateStr) => {
+  const [year, month, day] = String(dateStr || '').split('-').map(Number);
+  if (![year, month, day].every(Number.isFinite)) return new Date(dateStr);
+  return new Date(year, month - 1, day);
+};
+
 function ScheduleModal({ onClose, onSave, employees }) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = toLocalDateKey(new Date());
   const nextMonth = new Date();
   nextMonth.setMonth(nextMonth.getMonth() + 1);
-  const nextMonthStr = nextMonth.toISOString().split('T')[0];
+  const nextMonthStr = toLocalDateKey(nextMonth);
 
   const [form, setForm] = useState({
     branch: 'Tubli',
@@ -47,14 +54,14 @@ function ScheduleModal({ onClose, onSave, employees }) {
   };
 
   const getSelectedDates = () => {
-    const start = new Date(form.startDate);
-    const end = new Date(form.endDate);
+    const start = dateKeyToLocalDate(form.startDate);
+    const end = dateKeyToLocalDate(form.endDate);
     const dates = [];
     if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
     
     let current = new Date(start);
     while (current <= end) {
-      const dayName = DAYS[current.getDay()];
+      const dayName = JS_DAY_NAMES[current.getDay()];
       if (form.daysOfWeek.includes(dayName)) {
         dates.push(toLocalDateKey(current));
       }
@@ -266,7 +273,7 @@ export default function Schedule() {
   const [leaves, setLeaves] = useState([]);
   const [modal, setModal] = useState(false);
   const [editSchedule, setEditSchedule] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(toLocalDateKey(new Date()));
   const [viewMode, setViewMode] = useState('day');
   const [loading, setLoading] = useState(true);
   const [hoveredEmployee, setHoveredEmployee] = useState(null);
@@ -784,7 +791,7 @@ return (
                 <div className="grid grid-cols-7 border-l border-t border-gray-100">
                   {getMonthDays(selectedDate).map((dayObj, i) => {
                     const daySchedules = schedulesByDate[dayObj.date] || [];
-                    const isToday = dayObj.date === new Date().toISOString().split('T')[0];
+                    const isToday = dayObj.date === toLocalDateKey(new Date());
                     return (
                       <div key={i} className={`min-h-[120px] p-2 border-r border-b border-gray-100 flex flex-col gap-1.5 transition-colors ${dayObj.padding ? 'bg-gray-50/30' : 'bg-white'} ${isToday ? 'ring-2 ring-primary ring-inset z-10' : ''}`}>
                         <div className="flex justify-between items-start mb-1">
