@@ -1151,6 +1151,7 @@ export default function LabCases() {
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [quickLogBusy, setQuickLogBusy] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null); // id of case to delete
   const [importing, setImporting] = useState(false);
   const [showImportSuccess, setShowImportSuccess] = useState(false);
@@ -1248,7 +1249,12 @@ export default function LabCases() {
 
   images: (c.documents || []).map(doc => {
     return normalizeFileUrl(doc.fileUrl || '');
-  })
+  }),
+  timeline: (c.logs || []).map(log => ({
+    date: log.createdAt ? new Date(log.createdAt).toLocaleString('en-GB') : '',
+    status: log.type === 'Pickup' ? 'Sent to Lab' : log.type === 'Delivery' ? 'Received from Lab' : log.type,
+    note: log.note || ''
+  }))
 }));
       
       setCases(formattedCases);
@@ -1358,6 +1364,25 @@ const paginated = useMemo(() => {
       fetchData();
     } catch (err) {
       console.error('Error updating status:', err);
+    }
+  };
+
+  const handleQuickLog = async (caseItem, type) => {
+    if (!caseItem?.id || quickLogBusy) return;
+    const key = `${caseItem.id}-${type}`;
+    setQuickLogBusy(key);
+    try {
+      await API.post(`/lab-cases/${caseItem.id}/logs`, {
+        type,
+        note: `${type} recorded from Lab Cases list`,
+        createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm")
+      });
+      await fetchData();
+    } catch (err) {
+      console.error(`Error adding ${type} log:`, err);
+      alert(`Failed to save ${type} log`);
+    } finally {
+      setQuickLogBusy(null);
     }
   };
 
@@ -2131,7 +2156,30 @@ const handleExportAttachmentsPDF = async () => {
     </td>
 
     {/* ACTIONS */}
-    <td className="px-4 py-2 text-right space-x-2">
+    <td className="px-4 py-2">
+      <div className="flex items-center justify-end gap-2">
+      {checkPermission('lab_cases', 'update') && (
+        <>
+          <button
+            type="button"
+            onClick={() => handleQuickLog(c, 'Pickup')}
+            disabled={quickLogBusy === `${c.id}-Pickup`}
+            className="inline-flex items-center gap-1 rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+            title="Record pickup now"
+          >
+            <ArrowUpRight size={13} /> Pickup
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickLog(c, 'Delivery')}
+            disabled={quickLogBusy === `${c.id}-Delivery`}
+            className="inline-flex items-center gap-1 rounded-lg border border-orange-100 bg-orange-50 px-2.5 py-1.5 text-[10px] font-bold text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+            title="Record delivery now"
+          >
+            <ArrowDownLeft size={13} /> Delivery
+          </button>
+        </>
+      )}
 
       <button type="button" onClick={() => setViewItem(c)}>👁</button>
 
@@ -2153,6 +2201,7 @@ const handleExportAttachmentsPDF = async () => {
         🗑
       </button>
 
+      </div>
     </td>
 
   </tr>
@@ -2220,6 +2269,27 @@ const handleExportAttachmentsPDF = async () => {
                    </span>
                 </div>
               </div>
+
+              {checkPermission('lab_cases', 'update') && (
+                <div className="grid grid-cols-2 gap-2 pt-3 border-t border-gray-50">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLog(c, 'Pickup')}
+                    disabled={quickLogBusy === `${c.id}-Pickup`}
+                    className="py-2.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-bold hover:bg-indigo-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <ArrowUpRight size={14} /> Pickup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLog(c, 'Delivery')}
+                    disabled={quickLogBusy === `${c.id}-Delivery`}
+                    className="py-2.5 rounded-xl bg-orange-50 text-orange-700 border border-orange-100 text-xs font-bold hover:bg-orange-100 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <ArrowDownLeft size={14} /> Delivery
+                  </button>
+                </div>
+              )}
 
               <button 
                 onClick={() => setViewItem(c)}
