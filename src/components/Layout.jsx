@@ -103,8 +103,8 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
         </nav>
 
         {/* Bottom */}
-        {checkPermission('settings', 'view') && (
-          <div className="px-3 py-4 border-t border-white/10">
+        <div className="px-3 py-4 border-t border-white/10 space-y-3">
+          {checkPermission('settings', 'view') && (
             <button
               onClick={() => {
                 navigate('/settings');
@@ -115,8 +115,12 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
               <Icon name="Settings" size={20} className="text-blue-200" />
               <span className={`${collapsed ? 'lg:hidden' : 'block'}`}>Settings</span>
             </button>
+          )}
+          <div className={`${collapsed ? 'lg:hidden' : 'block'} px-3 pt-2 text-[10px] leading-relaxed text-blue-100/60`}>
+            <p>Created by Dr. Talal Al-Alawi and AI.</p>
+            <p>Copyright Dr. Talal Al-Alawi Dental Center.</p>
           </div>
-        )}
+        </div>
       </aside>
     </>
   );
