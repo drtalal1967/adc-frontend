@@ -197,6 +197,12 @@ const normalizeWorkflowStatus = (status) => {
   return value === 'COMPLETED' ? 'Completed' : 'Pending';
 };
 
+const localInputToIso = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
 
 function StatusBadge({ status }) {
   const map = {
@@ -354,7 +360,7 @@ useEffect(() => {
       await API.post(`/lab-cases/${caseItem.id}/logs`, {
         type: newLog.type,
         note: newLog.notes,
-        createdAt: newLog.date
+        createdAt: localInputToIso(newLog.date)
       });
       
       // Refetch both modal data and parent list to show updated status
@@ -372,6 +378,20 @@ useEffect(() => {
     } catch (err) {
       console.error('Error adding log:', err);
       alert('Failed to add log entry');
+    }
+  };
+
+  const handleDeleteLog = async (logId) => {
+    if (!caseItem?.id || !logId) return;
+    try {
+      await API.delete(`/lab-cases/${caseItem.id}/logs/${logId}`);
+      await fetchModalData();
+      if (onSave) {
+        onSave({ ...form, id: caseItem.id, refreshOnly: true });
+      }
+    } catch (err) {
+      console.error('Error deleting log:', err);
+      alert('Failed to delete log entry');
     }
   };
 
@@ -1375,7 +1395,7 @@ const paginated = useMemo(() => {
       await API.post(`/lab-cases/${caseItem.id}/logs`, {
         type,
         note: `${type} recorded from Lab Cases list`,
-        createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm")
+        createdAt: new Date().toISOString()
       });
       await fetchData();
     } catch (err) {
