@@ -632,15 +632,29 @@ export default function Employees() {
     }
   };
 
+  const staffEmployees = useMemo(() => (
+    employees.filter(employee => employee.role !== 'admin')
+  ), [employees]);
+
+  const getStaffSection = (employee) => {
+    const role = String(employee.role || '').toLowerCase();
+    const jobTitle = String(employee.jobTitle || '').toLowerCase();
+
+    if (role === 'dentist' || jobTitle.includes('dentist')) return 'Dentists';
+    if (role === 'assistant' || jobTitle.includes('assistant')) return 'Dental Assistants';
+    if (role === 'secretary' || jobTitle.includes('secretary')) return 'Secretaries';
+    return 'Other Staff';
+  };
+
   const filteredEmployees = useMemo(() => {
-    const isDentist = (employee) => employee.role === 'dentist';
+    const sectionOrder = ['Dentists', 'Dental Assistants', 'Secretaries', 'Other Staff'];
     const employmentDateTime = (employee) => {
       if (!employee.startDate) return Number.MAX_SAFE_INTEGER;
       const time = new Date(`${employee.startDate}T00:00:00`).getTime();
       return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
     };
 
-    return employees.filter(e => {
+    return staffEmployees.filter(e => {
       const matchesSearch =
         (e.name || '').toLowerCase().includes(search.toLowerCase()) ||
         (e.jobTitle || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -656,15 +670,25 @@ export default function Employees() {
 
       return matchesSearch && matchesRole && matchesJob && matchesStatus;
     }).sort((a, b) => {
-      const dentistDiff = Number(isDentist(b)) - Number(isDentist(a));
-      if (dentistDiff !== 0) return dentistDiff;
+      const sectionDiff = sectionOrder.indexOf(getStaffSection(a)) - sectionOrder.indexOf(getStaffSection(b));
+      if (sectionDiff !== 0) return sectionDiff;
 
       const dateDiff = employmentDateTime(a) - employmentDateTime(b);
       if (dateDiff !== 0) return dateDiff;
 
       return (a.name || '').localeCompare(b.name || '');
     });
-  }, [employees, search, roleFilter, jobFilter, statusFilter]);
+  }, [staffEmployees, search, roleFilter, jobFilter, statusFilter]);
+
+  const groupedEmployees = useMemo(() => {
+    const sections = ['Dentists', 'Dental Assistants', 'Secretaries', 'Other Staff'];
+    return sections
+      .map(section => ({
+        title: section,
+        employees: filteredEmployees.filter(employee => getStaffSection(employee) === section)
+      }))
+      .filter(section => section.employees.length > 0);
+  }, [filteredEmployees]);
 
   const handleSave = async (form) => {
     try {
@@ -867,7 +891,7 @@ export default function Employees() {
   };
 
   // Expiry Alerts
-  const expiringEmployees = employees.filter(e =>
+  const expiringEmployees = staffEmployees.filter(e =>
     isExpiringSoon(e.licenseExpiry) ||
     isExpiringSoon(e.visaExpiry) ||
     isExpiringSoon(e.workPermitExpiry)
@@ -967,7 +991,7 @@ export default function Employees() {
             <p className="font-bold text-amber-900 text-sm">Expiry Alerts</p>
           </div>
           <div className="space-y-2">
-            {employees.filter(e => isExpiringSoon(e.licenseExpiry)).map(e => (
+            {staffEmployees.filter(e => isExpiringSoon(e.licenseExpiry)).map(e => (
               <div key={`lic-${e.id}`} className="flex items-center gap-2 p-3 bg-white/50 rounded-xl border border-amber-100 hover:border-amber-200 transition-all">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
                 <p className="text-[11px] text-amber-800 font-medium">
@@ -975,7 +999,7 @@ export default function Employees() {
                 </p>
               </div>
             ))}
-            {employees.filter(e => isExpiringSoon(e.visaExpiry)).map(e => (
+            {staffEmployees.filter(e => isExpiringSoon(e.visaExpiry)).map(e => (
               <div key={`visa-${e.id}`} className="flex items-center gap-2 p-3 bg-white/50 rounded-xl border border-amber-100 hover:border-amber-200 transition-all">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
                 <p className="text-[11px] text-amber-900 font-medium">
@@ -983,7 +1007,7 @@ export default function Employees() {
                 </p>
               </div>
             ))}
-            {employees.filter(e => isExpiringSoon(e.workPermitExpiry)).map(e => (
+            {staffEmployees.filter(e => isExpiringSoon(e.workPermitExpiry)).map(e => (
               <div key={`wp-${e.id}`} className="flex items-center gap-2 p-3 bg-white/50 rounded-xl border border-amber-100 hover:border-amber-200 transition-all">
                 <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
                 <p className="text-[11px] text-primary-dark font-medium">
@@ -1011,7 +1035,17 @@ export default function Employees() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
-              {filteredEmployees.map(e => (
+              {groupedEmployees.map(section => (
+                <React.Fragment key={section.title}>
+                  <tr className="bg-[#eef3fb]">
+                    <td colSpan={7} className="px-6 py-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-primary">{section.title}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{section.employees.length} employees</span>
+                      </div>
+                    </td>
+                  </tr>
+                  {section.employees.map(e => (
                 <tr key={e.id} className="hover:bg-gray-50/30 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -1068,6 +1102,8 @@ export default function Employees() {
                     </div>
                   </td>
                 </tr>
+                  ))}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
@@ -1076,7 +1112,13 @@ export default function Employees() {
 
       {/* Mobile View: Card List */}
       <div className="md:hidden space-y-4">
-        {filteredEmployees.map(e => (
+        {groupedEmployees.map(section => (
+          <div key={section.title} className="space-y-3">
+            <div className="flex items-center justify-between px-1 pt-2">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-primary">{section.title}</p>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{section.employees.length}</span>
+            </div>
+            {section.employees.map(e => (
           <div key={e.id} className="card p-4 space-y-4 relative group active:scale-[0.98] transition-all duration-150 border-gray-100 shadow-sm">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -1139,6 +1181,8 @@ export default function Employees() {
             <div className="absolute right-0 bottom-0 p-1 opacity-[0.03] pointer-events-none group-hover:opacity-[0.08] transition-opacity">
               <Users size={60} />
             </div>
+          </div>
+            ))}
           </div>
         ))}
       </div>
