@@ -158,7 +158,7 @@ const sortScheduleEntries = (items = [], employees = []) => (
 
 export default function WorkSchedule() {
   const { user, checkPermission } = useAuth();
-  const [view, setView] = useState('Month');
+  const [view, setView] = useState('Week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('All Branches');
