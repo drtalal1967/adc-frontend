@@ -248,9 +248,9 @@ function Topbar({ sidebarCollapsed, onMenuToggle }) {
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setShowProfile(v => !v)}
-            className="flex items-center gap-2 md:gap-2.5 pl-2 pr-2 md:pr-3 py-1.5 rounded-xl hover:bg-gray-100 transition-all duration-200"
+            className="flex items-center gap-2 md:gap-3 pl-2 pr-2 md:pr-3 py-1 rounded-xl hover:bg-gray-100 transition-all duration-200"
           >
-            <div className="w-8 h-8 rounded-xl bg-gradient-teal flex items-center justify-center text-white text-xs font-bold overflow-hidden">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-teal flex items-center justify-center text-white text-sm font-bold overflow-hidden shadow-sm ring-2 ring-white">
               {user?.profileImage ? (
                 <img src={user.profileImage.startsWith('http') ? user.profileImage : `${BACKEND_URL}${user.profileImage}`} alt="Profile" className="w-full h-full object-cover" />
               ) : (
