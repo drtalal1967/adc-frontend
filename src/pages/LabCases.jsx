@@ -192,6 +192,11 @@ const LabLogo = ({ logoUrl, name }) => (
   </div>
 );
 
+const normalizeWorkflowStatus = (status) => {
+  const value = String(status || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  return value === 'COMPLETED' ? 'Completed' : 'Pending';
+};
+
 
 function StatusBadge({ status }) {
   const map = {
@@ -807,6 +812,7 @@ useEffect(() => {
 
 function ViewModal({ caseItem, onClose, userRole, onUpdateStatus, setPreviewFile }) {
   if (!caseItem) return null;
+  const currentWorkflowStatus = normalizeWorkflowStatus(caseItem.status);
   return (
     <div className="modal-overlay z-[100]" onClick={onClose}>
       <div className="modal-content max-w-lg bg-white overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -863,7 +869,7 @@ function ViewModal({ caseItem, onClose, userRole, onUpdateStatus, setPreviewFile
                                  (userRole === 'secretary' && s === 'Pending') ||
                                  (userRole === 'assistant' && s === 'Pending') ||
                                  (userRole === 'dentist');
-                const isCurrent = caseItem.status === s;
+                const isCurrent = currentWorkflowStatus === s;
                 return (
                   <button
                     key={s}
