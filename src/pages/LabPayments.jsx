@@ -5,6 +5,7 @@ import { Search, Plus, Eye, Trash2, Calendar, CreditCard, ChevronRight, ChevronD
 import { format } from 'date-fns';
 import FileUpload from '../components/FileUpload';
 import FilePreviewModal from '../components/FilePreviewModal';
+import PaginationControls from '../components/PaginationControls';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -455,6 +456,8 @@ export default function LabPayments() {
   const [selectedVendor, setSelectedVendor] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [showAddModal, setShowAddModal] = useState(false);
   const [viewingPayment, setViewingPayment] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
@@ -577,6 +580,15 @@ export default function LabPayments() {
   const filteredTotal = useMemo(() => {
     return filtered.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   }, [filtered]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, selectedType, selectedStatus, selectedMethod, selectedBranch, selectedLab, selectedVendor, dateFrom, dateTo]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   const exportToExcel = () => {
     try {
@@ -822,7 +834,7 @@ export default function LabPayments() {
       <div className="hidden md:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-4">
-            <p className="text-xs font-bold text-gray-400">Showing 1 to {filtered.length} of {filtered.length} entries</p>
+            <p className="text-xs font-bold text-gray-400">{filtered.length} filtered entries</p>
             <div className="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-100 text-blue-900 text-xs font-black tracking-tight">
               Total: BHD {formatBHD(filteredTotal)}
             </div>
@@ -831,10 +843,6 @@ export default function LabPayments() {
              <select className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 text-[10px] font-bold text-gray-600 focus:outline-none">
                <option>Date (Newest)</option>
                <option>Date (Oldest)</option>
-             </select>
-             <select className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 text-[10px] font-bold text-gray-600 focus:outline-none">
-               <option>25 / pg</option>
-               <option>50 / pg</option>
              </select>
           </div>
         </div>
@@ -856,7 +864,7 @@ export default function LabPayments() {
               {(filtered || []).length === 0 && (
                 <tr><td colSpan={8} className="text-center text-gray-400 py-16">No payment records found.</td></tr>
               )}
-              {(filtered || []).map(p => (
+              {(paginated || []).map(p => (
                 <tr key={p.id} className="group hover:bg-blue-50/30 transition-colors">
                   <td className="px-6 py-5">
                     <span className="text-xs font-normal text-gray-400 block tracking-tight group-hover:text-blue-900 transition-colors">
@@ -919,7 +927,7 @@ export default function LabPayments() {
       </div>
       <div className="md:hidden space-y-4 py-2">
         {filtered.length === 0 && <div className="card text-center py-10 text-gray-400">No payment records found</div>}
-        {filtered.map(p => (
+        {paginated.map(p => (
           <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4 relative overflow-hidden border-t-4 border-t-orange-500 active:scale-[0.98] transition-transform duration-100">
              <div className="flex justify-between items-start">
                 <div className="space-y-1">
@@ -963,6 +971,14 @@ export default function LabPayments() {
           </div>
         ))}
       </div>
+      <PaginationControls
+        totalItems={filtered.length}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        label="payments"
+      />
 
     </div>
   );

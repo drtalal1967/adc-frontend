@@ -6,6 +6,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { exportToCSV } from '../utils/exportUtils';
 import FileUpload from '../components/FileUpload';
 import FilePreviewModal from '../components/FilePreviewModal';
+import PaginationControls from '../components/PaginationControls';
 import * as XLSX from 'xlsx';
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -657,6 +658,8 @@ export default function Expenses() {
   const [vendorFilter, setVendorFilter] = useState('All');
   const [dateFromExp, setDateFromExp] = useState('');
   const [dateToExp, setDateToExp] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const fileInputRef = useRef(null);
 
   const fetchCategories = useCallback(async () => {
@@ -932,6 +935,15 @@ const selectedTotal = expenses
       });
     },
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, categoryFilter, payStatusFilter, branchFilterExp, vendorFilter, dateFromExp, dateToExp]);
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   // Totals
   const finalY = doc.lastAutoTable.finalY || 30;
@@ -1353,7 +1365,7 @@ const selectedTotal = expenses
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map((e, idx) => (
+              {paginated.map((e, idx) => (
                 <tr key={e.id} className="hover:bg-gray-50/50 transition-colors group animate-in slide-in-from-right-2 duration-300" style={{ animationDelay: `${idx * 30}ms` }}>
                   <td className="px-4 py-4">
                     <input 
@@ -1421,7 +1433,7 @@ const selectedTotal = expenses
 
       {/* Mobile View: Card List */}
       <div className="md:hidden space-y-4">
-        {filtered.map((e, idx) => (
+        {paginated.map((e, idx) => (
           <div key={e.id} className="bg-white rounded-[2rem] p-5 border border-gray-100 shadow-xl shadow-gray-200/10 active:scale-[0.98] transition-all duration-150 animate-in fade-in slide-in-from-bottom-2" style={{ animationDelay: `${idx * 50}ms` }}>
             <div className="flex items-start justify-between mb-4">
               <div className="space-y-1 min-w-0">
@@ -1483,6 +1495,14 @@ const selectedTotal = expenses
           </div>
         ))}
       </div>
+      <PaginationControls
+        totalItems={filtered.length}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        label="expenses"
+      />
       </div>
     </div>
   );

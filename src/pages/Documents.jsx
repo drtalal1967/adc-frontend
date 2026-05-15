@@ -6,6 +6,7 @@ import FilePreviewModal from '../components/FilePreviewModal';
 import FileUpload from '../components/FileUpload';
 import { Search, FileText, Download, Trash2, Eye, Calendar, X, Upload, Image as ImageIcon, CheckCircle2, User, Settings, Tag, Plus, Check, Loader2, Bell } from 'lucide-react';
 import CategoryManagerModal from '../components/CategoryManagerModal';
+import PaginationControls from '../components/PaginationControls';
 import { useAuth } from '../context/AuthContext';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
@@ -266,6 +267,8 @@ export default function Documents() {
   const [customCategories, setCustomCategories] = useState([]);
   const [filterEmployee, setFilterEmployee] = useState('All');
   const [filterBranch, setFilterBranch] = useState('All');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const fetchCustomCategories = useCallback(async () => {
     try {
@@ -337,6 +340,15 @@ export default function Documents() {
       return matchSearch && matchCat && matchFrom && matchTo && matchEmployee && matchBranch;
     });
   }, [docs, search, filterCategory, filterDateFrom, filterDateTo, filterEmployee, filterBranch]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterCategory, filterDateFrom, filterDateTo, filterEmployee, filterBranch]);
+
+  const paginatedDocs = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredDocs.slice(start, start + pageSize);
+  }, [filteredDocs, page, pageSize]);
 
   const handleDelete = async () => {
     if (confirmDelete) {
@@ -582,7 +594,7 @@ export default function Documents() {
                    </tr>
                  </thead>
                  <tbody className="divide-y divide-gray-50">
-                   {filteredDocs.map((doc, idx) => (
+                   {paginatedDocs.map((doc, idx) => (
                      <tr key={doc.id} className="hover:bg-gray-50/50 transition-colors group animate-in slide-in-from-bottom-2" style={{ animationDelay: `${idx*30}ms` }}>
                        <td className="px-6 py-4">
                          <div className="flex items-center gap-3">
@@ -634,7 +646,7 @@ export default function Documents() {
           </div>
 
           <div className="md:hidden space-y-3">
-            {filteredDocs.map((doc, idx) => (
+            {paginatedDocs.map((doc, idx) => (
               <div key={doc.id} className="card p-4 space-y-3 border border-gray-100 shadow-sm animate-in slide-in-from-bottom-2" style={{ animationDelay: `${idx*30}ms` }}>
                 <div className="flex items-start gap-3">
                    <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center flex-shrink-0 cursor-pointer" onClick={() => setPreviewFile(doc.fileUrl)}>
@@ -669,6 +681,14 @@ export default function Documents() {
               </div>
             ))}
           </div>
+          <PaginationControls
+            totalItems={filteredDocs.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+            label="documents"
+          />
         </>
       )}
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { LAB_CASES, LABS } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
 import { Search, Filter, Download, Eye, Edit2, Trash2, CheckCircle, FlaskConical, Plus, Calendar, MapPin, Hash, User, Activity, CreditCard, ChevronRight, Clock, Camera, Upload, X as CloseIcon, CheckCircle2, ArrowUpRight, ArrowDownLeft, Layers, FileText, FileSpreadsheet } from 'lucide-react';
@@ -14,6 +14,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import FileUpload from '../components/FileUpload';
 import CategoryManagerModal from '../components/CategoryManagerModal';
 import API, { BACKEND_URL } from '../api';
+import PaginationControls from '../components/PaginationControls';
 
 const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
   minimumFractionDigits: 3,
@@ -1142,6 +1143,8 @@ export default function LabCases() {
   const [labFilter, setLabFilter] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [confirmDelete, setConfirmDelete] = useState(null); // id of case to delete
   const [importing, setImporting] = useState(false);
   const [showImportSuccess, setShowImportSuccess] = useState(false);
@@ -1330,6 +1333,15 @@ const matchDateTo = !to || (caseDate && caseDate <= to);
 const selectedTotal = cases
   .filter(c => selectedIDs.includes(c.id))
   .reduce((sum, c) => sum + getCaseDueAmount(c), 0);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, payFilter, branchFilter, dentistFilter, labFilter, dateFrom, dateTo]);
+
+const paginated = useMemo(() => {
+  const start = (page - 1) * pageSize;
+  return filtered.slice(start, start + pageSize);
+}, [filtered, page, pageSize]);
 
   const canEdit = ['admin', 'manager', 'secretary'].includes(user?.role);
   const canMarkPaid = ['admin', 'manager', 'accountant'].includes(user?.role);
@@ -2057,7 +2069,7 @@ const handleExportAttachmentsPDF = async () => {
       </td>
     </tr>
   ) : (
-    filtered.map(c => (
+    paginated.map(c => (
   <tr key={c.id} className="hover:bg-gray-50">
 
     {/* ✅ CHECKBOX COLUMN (FIX) */}
@@ -2150,7 +2162,7 @@ const handleExportAttachmentsPDF = async () => {
           {filtered.length === 0 && (
             <div className="text-center text-gray-400 py-10 font-medium">No lab cases found.</div>
           )}
-          {filtered.map(c => (
+          {paginated.map(c => (
             <div key={c.id} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm relative overflow-hidden text-left">
               <div className="flex items-start justify-between mb-3">
                 <div onClick={() => setViewItem(c)} className="cursor-pointer">
@@ -2213,6 +2225,15 @@ const handleExportAttachmentsPDF = async () => {
           ))}
         </div>
       </div>
+
+      <PaginationControls
+        totalItems={filtered.length}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        label="lab cases"
+      />
 
       <CategoryManagerModal 
         isOpen={showCatManager} 
