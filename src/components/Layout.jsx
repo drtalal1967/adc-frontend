@@ -118,7 +118,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
           )}
           <div className={`${collapsed ? 'lg:hidden' : 'block'} px-3 pt-2 text-[10px] leading-relaxed text-blue-100/60`}>
             <p>Created by Dr. Talal Al-Alawi and AI.</p>
-            <p>Copyright Dr. Talal Al-Alawi Dental Center.</p>
+            <p>Copyright 2026 Dr. Talal Al-Alawi Dental Center.</p>
           </div>
         </div>
       </aside>
