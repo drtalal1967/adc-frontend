@@ -262,6 +262,95 @@ function EditScheduleModal({ schedule, employees, onClose, onSave }) {
   );
 }
 
+function BulkDeleteScheduleModal({ employees, defaultStart, defaultEnd, defaultEmployee, defaultBranch, isAdmin, onClose, onDelete }) {
+  const [form, setForm] = useState({
+    employeeId: defaultEmployee || 'All',
+    branch: defaultBranch || 'All Branches',
+    startDate: defaultStart || '',
+    endDate: defaultEnd || '',
+    confirm: false,
+  });
+
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const includesPast = form.startDate && form.startDate < toLocalDateKey(new Date());
+
+  return (
+    <div className="modal-overlay z-[100]" onClick={onClose}>
+      <div className="modal-content max-w-xl bg-white overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-black text-gray-900">Delete Schedules</h2>
+            <p className="text-xs font-semibold text-gray-400 mt-1">Delete matching schedule entries by range and employee.</p>
+          </div>
+          <button onClick={onClose} className="btn-icon text-gray-400"><X size={20} /></button>
+        </div>
+
+        <div className="p-6 space-y-5 text-left">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">Employee</label>
+              <select value={form.employeeId} onChange={e => update('employeeId', e.target.value)} className="input">
+                <option value="All">All Employees</option>
+                {employees.map(employee => (
+                  <option key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">Branch</label>
+              <select value={form.branch} onChange={e => update('branch', e.target.value)} className="input">
+                <option value="All Branches">All Branches</option>
+                <option value="tubli">Tubli Branch</option>
+                <option value="manama">Manama Branch</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">From</label>
+              <input type="date" value={form.startDate} onChange={e => update('startDate', e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="block text-xs font-black text-gray-500 uppercase tracking-widest mb-2">To</label>
+              <input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => update('endDate', e.target.value)} className="input" />
+            </div>
+          </div>
+
+          {includesPast && !isAdmin && (
+            <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
+              Only Admin can delete schedules in the past.
+            </div>
+          )}
+
+          <label className="flex items-start gap-3 rounded-2xl border border-rose-100 bg-rose-50/60 p-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.confirm}
+              onChange={e => update('confirm', e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
+            />
+            <span className="text-xs font-bold text-rose-700 leading-relaxed">
+              I understand this will permanently delete the matching schedule entries. Leave records will not be deleted.
+            </span>
+          </label>
+        </div>
+
+        <div className="px-6 py-5 border-t border-gray-100 flex justify-end gap-3">
+          <button onClick={onClose} className="btn-ghost px-5 py-3 rounded-xl text-sm font-bold">Cancel</button>
+          <button
+            disabled={!form.startDate || !form.endDate || !form.confirm || (includesPast && !isAdmin)}
+            onClick={() => onDelete(form)}
+            className="px-7 py-3 rounded-xl text-sm font-black bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-rose-200"
+          >
+            Delete Matching Schedules
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Schedule() {
   const { user, checkPermission } = useAuth();
   const canCreate = checkPermission('schedule', 'create');
@@ -273,6 +362,7 @@ export default function Schedule() {
   const [leaves, setLeaves] = useState([]);
   const [modal, setModal] = useState(false);
   const [editSchedule, setEditSchedule] = useState(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(toLocalDateKey(new Date()));
   const [viewMode, setViewMode] = useState('day');
   const [loading, setLoading] = useState(true);
@@ -419,6 +509,23 @@ export default function Schedule() {
       setSchedules(prev => prev.filter(s => s.id !== id));
     } catch (err) {
       alert('Failed to delete schedule');
+    }
+  };
+
+  const handleBulkDelete = async (payload) => {
+    try {
+      const res = await API.post('/schedules/bulk-delete', {
+        startDate: payload.startDate,
+        endDate: payload.endDate,
+        employeeId: payload.employeeId,
+        branch: payload.branch,
+      });
+      alert(`Deleted ${res.data?.deleted || 0} schedule entries.`);
+      setBulkDeleteOpen(false);
+      fetchData();
+    } catch (err) {
+      console.error('Error deleting schedules:', err);
+      alert(err.response?.data?.message || 'Failed to delete matching schedules');
     }
   };
 
@@ -642,6 +749,12 @@ const isEmployeeOnLeave = (employeeId, date) => {
     minimumFractionDigits: hours % 1 === 0 ? 0 : 1,
     maximumFractionDigits: 1,
   });
+
+  const currentDeleteRange = viewMode === 'day'
+    ? { start: selectedDate, end: selectedDate }
+    : viewMode === 'week'
+    ? getWeekRange(selectedDate)
+    : getMonthRange(selectedDate);
   
 return (
     <div className="space-y-5 animate-fade-in">
@@ -652,6 +765,18 @@ return (
           employees={employees}
           onClose={() => setEditSchedule(null)}
           onSave={handleUpdate}
+        />
+      )}
+      {bulkDeleteOpen && canDelete && (
+        <BulkDeleteScheduleModal
+          employees={employees}
+          defaultStart={currentDeleteRange.start}
+          defaultEnd={currentDeleteRange.end}
+          defaultEmployee={selectedEmployee || 'All'}
+          defaultBranch={selectedBranch || 'All Branches'}
+          isAdmin={String(user?.role || '').toLowerCase() === 'admin'}
+          onClose={() => setBulkDeleteOpen(false)}
+          onDelete={handleBulkDelete}
         />
       )}
 
@@ -717,6 +842,15 @@ return (
       className="btn-primary w-full sm:w-auto sm:flex-none justify-center py-2 text-sm shadow-lg shadow-primary/20"
     >
       <Plus size={15} /> Assign Schedule
+    </button>
+  )}
+
+  {canDelete && (
+    <button
+      onClick={() => setBulkDeleteOpen(true)}
+      className="w-full sm:w-auto sm:flex-none justify-center py-2 px-4 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100 text-sm font-black flex items-center gap-2"
+    >
+      <Trash2 size={15} /> Delete Range
     </button>
   )}
 
