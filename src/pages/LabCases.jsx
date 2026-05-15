@@ -183,11 +183,11 @@ const savePdfDocument = async (pdfDoc, fileName) => {
 };
 
 const LabLogo = ({ logoUrl, name }) => (
-  <div className="w-8 h-8 rounded-lg bg-white border border-blue-100 flex items-center justify-center overflow-hidden text-blue-900 shadow-sm shrink-0">
+  <div className="w-11 h-11 rounded-xl bg-white border border-blue-100 flex items-center justify-center overflow-hidden text-blue-900 shadow-sm shrink-0">
     {logoUrl ? (
-      <img src={logoUrl} alt={`${name || 'Laboratory'} logo`} className="w-full h-full object-contain p-1" />
+      <img src={logoUrl} alt={`${name || 'Laboratory'} logo`} className="w-full h-full object-contain p-1.5" />
     ) : (
-      <FlaskConical size={14} />
+      <FlaskConical size={18} />
     )}
   </div>
 );

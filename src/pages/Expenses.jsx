@@ -205,11 +205,11 @@ const savePdfDocument = async (pdfDoc, fileName) => {
 };
 
 const PartnerLogo = ({ logoUrl, name, size = 'sm' }) => (
-  <div className={`${size === 'xs' ? 'w-8 h-8 rounded-lg' : 'w-9 h-9 rounded-xl'} bg-white border border-blue-100 flex items-center justify-center overflow-hidden text-blue-900 shadow-sm shrink-0`}>
+  <div className={`${size === 'xs' ? 'w-10 h-10 rounded-xl' : 'w-11 h-11 rounded-xl'} bg-white border border-blue-100 flex items-center justify-center overflow-hidden text-blue-900 shadow-sm shrink-0`}>
     {logoUrl ? (
-      <img src={logoUrl} alt={`${name || 'Vendor'} logo`} className="w-full h-full object-contain p-1" />
+      <img src={logoUrl} alt={`${name || 'Vendor'} logo`} className="w-full h-full object-contain p-1.5" />
     ) : (
-      <Store size={size === 'xs' ? 14 : 16} />
+      <Store size={size === 'xs' ? 17 : 18} />
     )}
   </div>
 );
