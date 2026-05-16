@@ -19,6 +19,13 @@ const formatBHD = (value) => Number(value || 0).toLocaleString(undefined, {
   maximumFractionDigits: 3,
 });
 
+const normalizePaymentStatus = (status) => {
+  const value = String(status || '').trim().toUpperCase();
+  if (value === 'PAID' || value === 'PAID_FULL' || value === 'SETTLED') return 'Paid';
+  if (value === 'PARTIAL' || value === 'PARTIALLY_PAID') return 'Partial';
+  return 'Unpaid';
+};
+
 const toDateKey = (value) => {
   if (!value) return '';
   if (typeof value === 'string') {
@@ -423,6 +430,7 @@ function ExpenseModal({ item, onClose, onSave, onPreview, vendors = [], categori
       ...initialData,
       ...item,
       date: item.dateKey || toDateKey(item.expenseDate) || item.date || initialData.date,
+      paymentStatus: normalizePaymentStatus(item.paymentStatus || item.status),
       attachments: Array.isArray(item.attachments) ? item.attachments : []
     };
   });
@@ -906,7 +914,7 @@ export default function Expenses() {
           paidAmount: paid,
           remainingAmount: Math.max(0, amt - paid),
           branch: exp.branch || 'Tubli Branch',
-          paymentStatus: exp.paymentStatus === 'PAID' ? 'Paid' : (exp.paymentStatus === 'PARTIAL' ? 'Partial' : 'Pending'),
+          paymentStatus: normalizePaymentStatus(exp.paymentStatus || exp.status),
           attachments: (exp.documents || []).map(doc => normalizeFileUrl(doc.fileUrl || ''))
         };
       }));
@@ -1407,7 +1415,7 @@ const selectedTotal = expenses
             >
               <option value="All">All Payments</option>
               <option value="Paid">Paid</option>
-              <option value="Pending">Unpaid</option>
+              <option value="Unpaid">Unpaid</option>
             </select>
 
             <select
@@ -1550,7 +1558,7 @@ const selectedTotal = expenses
                 <th className="px-6 py-5 text-[11px] font-black text-gray-600 uppercase tracking-widest text-left">Entity / Category</th>
                 <th className="hidden lg:table-cell px-6 py-5 text-[11px] font-black text-gray-600 uppercase tracking-widest">Invoice Ref</th>
                 <th className="px-6 py-5 text-[11px] font-black text-gray-600 uppercase tracking-widest text-right">Amount</th>
-                <th className="px-6 py-5 text-[11px] font-black text-gray-600 uppercase tracking-widest text-center">Status</th>
+                <th className="px-6 py-5 text-[11px] font-black text-gray-600 uppercase tracking-widest text-center">Payment Status</th>
                 <th className="px-6 py-5 text-[11px] font-black text-gray-600 uppercase tracking-widest text-center">Action</th>
               </tr>
             </thead>
