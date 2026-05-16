@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import API from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Trash2, Edit2, CalendarDays, Clock, X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Edit2, CalendarDays, Clock, X, Check, ChevronLeft, ChevronRight, Copy, MoveRight } from 'lucide-react';
 
 const DAYS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const JS_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -369,6 +369,7 @@ export default function Schedule() {
   const [hoveredEmployee, setHoveredEmployee] = useState(null);
   const [selectedEmployee, setSelectedEmployee] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [scheduleClipboard, setScheduleClipboard] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -526,6 +527,65 @@ export default function Schedule() {
     } catch (err) {
       console.error('Error deleting schedules:', err);
       alert(err.response?.data?.message || 'Failed to delete matching schedules');
+    }
+  };
+
+  const getScheduleEmployeeName = (schedule) => {
+    const emp = employees.find(e => String(e.id) === String(schedule.employeeId)) || schedule.employee;
+    return schedule.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown');
+  };
+
+  const handleSchedulePaste = async (targetDate) => {
+    if (!scheduleClipboard?.schedule || !targetDate) return;
+
+    const { mode, schedule } = scheduleClipboard;
+    if (schedule.isLeaveOnly || schedule.status === 'On Leave') {
+      alert('Leave entries cannot be copied or moved from here.');
+      return;
+    }
+
+    if (mode === 'move' && schedule.date === targetDate) {
+      alert('This schedule is already on that date.');
+      return;
+    }
+
+    const startTime = schedule.startTime?.slice(0, 5) || '';
+    const endTime = schedule.endTime?.slice(0, 5) || '';
+    const branch = getScheduleBranch(schedule) || schedule.branch || 'Tubli';
+    const duplicate = schedules.some(existing => (
+      !existing.isLeaveOnly &&
+      String(existing.id) !== String(schedule.id) &&
+      String(existing.employeeId) === String(schedule.employeeId) &&
+      existing.date === targetDate &&
+      String(existing.startTime || '').slice(0, 5) === startTime &&
+      String(existing.endTime || '').slice(0, 5) === endTime &&
+      normalizeBranch(getScheduleBranch(existing) || existing.branch) === normalizeBranch(branch)
+    ));
+
+    if (duplicate) {
+      alert('This employee already has the same schedule on the selected date.');
+      return;
+    }
+
+    const payload = {
+      employeeId: Number(schedule.employeeId),
+      date: targetDate,
+      startTime,
+      endTime,
+      branch,
+    };
+
+    try {
+      if (mode === 'copy') {
+        await API.post('/schedules', payload);
+      } else {
+        await API.put(`/schedules/${schedule.id}`, payload);
+      }
+      setScheduleClipboard(null);
+      fetchData();
+    } catch (err) {
+      console.error('Error pasting schedule:', err);
+      alert(err.response?.data?.message || `Failed to ${mode} schedule`);
     }
   };
 
@@ -914,6 +974,26 @@ return (
           </div>
 
           <div className="grid grid-cols-1 gap-3">
+            {viewMode === 'month' && scheduleClipboard && (
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">
+                    {scheduleClipboard.mode === 'copy' ? 'Copy Schedule' : 'Move Schedule'}
+                  </p>
+                  <p className="text-sm font-bold text-blue-950 truncate">
+                    {getScheduleEmployeeName(scheduleClipboard.schedule)} - {scheduleClipboard.schedule.startTime?.slice(0, 5)} to {scheduleClipboard.schedule.endTime?.slice(0, 5)}
+                  </p>
+                  <p className="text-xs font-semibold text-blue-700">Use Paste here on the target date.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScheduleClipboard(null)}
+                  className="px-4 py-2 rounded-xl bg-white text-blue-700 border border-blue-100 text-xs font-black hover:bg-blue-100 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             {viewMode === 'month' ? (
               <div className="bg-white rounded-2xl border border-gray-100 overflow-x-auto shadow-sm">
                 <div className="min-w-[720px] lg:min-w-0">
@@ -932,6 +1012,15 @@ return (
                           <span className={`text-xs font-black ${dayObj.padding ? 'text-gray-300' : 'text-gray-800'}`}>{dayObj.day}</span>
                           {isToday && <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>}
                         </div>
+                        {scheduleClipboard && !dayObj.padding && (
+                          <button
+                            type="button"
+                            onClick={() => handleSchedulePaste(dayObj.date)}
+                            className="mb-1 w-full rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-blue-700 hover:bg-blue-100 transition-all"
+                          >
+                            Paste here
+                          </button>
+                        )}
                         <div className="flex flex-col gap-1 overflow-y-auto scrollbar-hide">
                           {daySchedules.map(s => {
                             const isLeave = s.status === 'On Leave';
@@ -952,6 +1041,30 @@ return (
                               <p className={`font-semibold opacity-90 text-[9px] ${isLeave ? 'text-rose-700' : color.muted}`}>
   {isLeave ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime?.slice(0,5)} - ${s.endTime?.slice(0,5)}`}
 </p>
+                              {!isLeave && !s.isLeaveOnly && (canCreate || canUpdate) && (
+                                <div className="mt-1 flex items-center gap-1">
+                                  {canCreate && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setScheduleClipboard({ mode: 'copy', schedule: s }); }}
+                                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-md bg-white/75 px-1.5 py-1 text-[8px] font-black uppercase tracking-wide text-gray-600 ring-1 ring-black/5 hover:bg-white hover:text-blue-700 transition-all"
+                                      title="Copy this schedule"
+                                    >
+                                      <Copy size={10} /> Copy
+                                    </button>
+                                  )}
+                                  {canUpdate && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setScheduleClipboard({ mode: 'move', schedule: s }); }}
+                                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-md bg-white/75 px-1.5 py-1 text-[8px] font-black uppercase tracking-wide text-gray-600 ring-1 ring-black/5 hover:bg-white hover:text-orange-700 transition-all"
+                                      title="Move this schedule"
+                                    >
+                                      <MoveRight size={10} /> Move
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                               {!isLeave && <div className={`absolute right-0 top-0 bottom-0 w-1 ${color.bar} transform translate-x-full group-hover:translate-x-0 transition-transform`} />}
                             </div>
                           );
