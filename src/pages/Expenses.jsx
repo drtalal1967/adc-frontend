@@ -177,6 +177,30 @@ const sortExpensesForAttachmentPdf = (records = []) => [...records].sort((a, b) 
   return String(toDateKey(a.expenseDate) || a.date || '').localeCompare(String(toDateKey(b.expenseDate) || b.date || ''));
 });
 
+const getExpenseRecordDateKey = (record = {}) => toDateKey(record.expenseDate) || toDateKey(record.date) || '';
+
+const getExpensesReportPeriod = (records = []) => {
+  const dateKeys = records.map(getExpenseRecordDateKey).filter(Boolean).sort();
+  if (!dateKeys.length) return 'Period: No dated records';
+  const start = dateKeys[0];
+  const end = dateKeys[dateKeys.length - 1];
+  return start === end
+    ? `Period: ${formatDisplayDate(start)}`
+    : `Period: ${formatDisplayDate(start)} to ${formatDisplayDate(end)}`;
+};
+
+const embedClinicLogo = async (pdfDoc) => {
+  try {
+    const response = await fetch('/clinic-logo-v2.jpg');
+    if (!response.ok) return null;
+    const bytes = await response.arrayBuffer();
+    return await pdfDoc.embedJpg(bytes);
+  } catch (error) {
+    console.warn('Could not embed clinic logo in PDF:', error);
+    return null;
+  }
+};
+
 const addExpensesAttachmentSummaryPages = async (pdfDoc, records = []) => {
   const sortedRecords = sortExpensesForAttachmentPdf(records);
   const pageSize = [841.89, 595.28];
@@ -192,6 +216,8 @@ const addExpensesAttachmentSummaryPages = async (pdfDoc, records = []) => {
   const line = rgb(0.88, 0.9, 0.94);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const logoImage = await embedClinicLogo(pdfDoc);
+  const periodText = getExpensesReportPeriod(sortedRecords);
 
   let page;
   let y;
@@ -212,12 +238,18 @@ const addExpensesAttachmentSummaryPages = async (pdfDoc, records = []) => {
   const newPage = () => {
     page = pdfDoc.addPage(pageSize);
     pageNumber += 1;
-    page.drawRectangle({ x: 0, y: pageSize[1] - 54, width: pageSize[0], height: 54, color: headerColor });
-    page.drawRectangle({ x: 0, y: pageSize[1] - 58, width: pageSize[0], height: 4, color: orange });
-    drawPdfText(page, 'Al-Alawi Dental Center', margin, pageSize[1] - 24, { font: boldFont, size: 12, color: rgb(1, 1, 1) });
-    drawPdfText(page, 'Expenses Attachments Summary', margin, pageSize[1] - 43, { font: boldFont, size: 16, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: 0, y: pageSize[1] - 68, width: pageSize[0], height: 68, color: headerColor });
+    page.drawRectangle({ x: 0, y: pageSize[1] - 72, width: pageSize[0], height: 4, color: orange });
+    const titleX = logoImage ? margin + 72 : margin;
+    if (logoImage) {
+      page.drawRectangle({ x: margin, y: pageSize[1] - 61, width: 56, height: 46, color: rgb(1, 1, 1), borderColor: rgb(0.86, 0.9, 0.95), borderWidth: 0.5 });
+      page.drawImage(logoImage, { x: margin + 4, y: pageSize[1] - 58, width: 48, height: 40 });
+    }
+    drawPdfText(page, 'Al-Alawi Dental Center', titleX, pageSize[1] - 22, { font: boldFont, size: 12, color: rgb(1, 1, 1) });
+    drawPdfText(page, 'Expenses Attachments Summary', titleX, pageSize[1] - 42, { font: boldFont, size: 16, color: rgb(1, 1, 1) });
+    drawPdfText(page, periodText, titleX, pageSize[1] - 58, { font: boldFont, size: 9, color: rgb(1, 0.88, 0.74), maxWidth: 320 });
     drawPdfText(page, `Generated ${formatDisplayDate(new Date())}  |  Page ${pageNumber}`, pageSize[0] - 230, pageSize[1] - 35, { font, size: 9, color: rgb(0.85, 0.9, 0.96) });
-    y = pageSize[1] - 82;
+    y = pageSize[1] - 96;
 
     page.drawRectangle({ x: margin, y: y - 12, width: pageSize[0] - margin * 2, height: 20, color: blueFill, borderColor: line, borderWidth: 0.5 });
     columns.forEach(col => {
