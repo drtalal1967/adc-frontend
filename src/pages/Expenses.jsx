@@ -156,6 +156,163 @@ const drawFallbackAttachmentPage = async (pdfDoc, attachment, message = 'This at
   page.drawText(attachment.url, { x: 42, y: 678, size: 8, font, color: rgb(0.02, 0.24, 0.58), maxWidth: 510 });
 };
 
+const drawPdfText = (page, text, x, y, options = {}) => {
+  const { font, size = 8, color = rgb(0.08, 0.12, 0.2), maxWidth } = options;
+  page.drawText(String(text ?? ''), { x, y, size, font, color, maxWidth });
+};
+
+const getPdfAmount = (value) => Number(value || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 3,
+  maximumFractionDigits: 3,
+});
+
+const getExpenseVendorName = (record = {}) => record.vendorName || record.vendor?.name || 'Unknown Vendor';
+const getExpenseAmount = (record = {}) => Number(record.amount || 0);
+
+const sortExpensesForAttachmentPdf = (records = []) => [...records].sort((a, b) => {
+  const vendorCompare = getExpenseVendorName(a).localeCompare(getExpenseVendorName(b), undefined, { sensitivity: 'base' });
+  if (vendorCompare !== 0) return vendorCompare;
+  const branchCompare = String(a.branch || '').localeCompare(String(b.branch || ''), undefined, { sensitivity: 'base' });
+  if (branchCompare !== 0) return branchCompare;
+  return String(toDateKey(a.expenseDate) || a.date || '').localeCompare(String(toDateKey(b.expenseDate) || b.date || ''));
+});
+
+const addExpensesAttachmentSummaryPages = async (pdfDoc, records = []) => {
+  const sortedRecords = sortExpensesForAttachmentPdf(records);
+  const pageSize = [841.89, 595.28];
+  const margin = 28;
+  const rowHeight = 17;
+  const summaryRowHeight = 15;
+  const headerColor = rgb(0.11, 0.22, 0.34);
+  const orange = rgb(0.96, 0.45, 0.08);
+  const muted = rgb(0.42, 0.45, 0.5);
+  const blueFill = rgb(0.94, 0.97, 1);
+  const orangeFill = rgb(1, 0.96, 0.91);
+  const greenFill = rgb(0.93, 0.99, 0.97);
+  const line = rgb(0.88, 0.9, 0.94);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  let page;
+  let y;
+  let pageNumber = 0;
+
+  const columns = [
+    { label: 'Date', x: 34, width: 58 },
+    { label: 'Vendor', x: 96, width: 150 },
+    { label: 'Category', x: 250, width: 88 },
+    { label: 'Invoice', x: 342, width: 72 },
+    { label: 'Branch', x: 418, width: 86 },
+    { label: 'Amount', x: 508, width: 68, align: 'right' },
+    { label: 'Paid', x: 580, width: 66, align: 'right' },
+    { label: 'Outstanding', x: 650, width: 78, align: 'right' },
+    { label: 'Status', x: 732, width: 72 },
+  ];
+
+  const newPage = () => {
+    page = pdfDoc.addPage(pageSize);
+    pageNumber += 1;
+    page.drawRectangle({ x: 0, y: pageSize[1] - 54, width: pageSize[0], height: 54, color: headerColor });
+    page.drawRectangle({ x: 0, y: pageSize[1] - 58, width: pageSize[0], height: 4, color: orange });
+    drawPdfText(page, 'Al-Alawi Dental Center', margin, pageSize[1] - 24, { font: boldFont, size: 12, color: rgb(1, 1, 1) });
+    drawPdfText(page, 'Expenses Attachments Summary', margin, pageSize[1] - 43, { font: boldFont, size: 16, color: rgb(1, 1, 1) });
+    drawPdfText(page, `Generated ${formatDisplayDate(new Date())}  |  Page ${pageNumber}`, pageSize[0] - 230, pageSize[1] - 35, { font, size: 9, color: rgb(0.85, 0.9, 0.96) });
+    y = pageSize[1] - 82;
+
+    page.drawRectangle({ x: margin, y: y - 12, width: pageSize[0] - margin * 2, height: 20, color: blueFill, borderColor: line, borderWidth: 0.5 });
+    columns.forEach(col => {
+      drawPdfText(page, col.label, col.x, y - 5, { font: boldFont, size: 8, color: headerColor, maxWidth: col.width });
+    });
+    y -= 25;
+  };
+
+  const ensureSpace = (height = rowHeight) => {
+    if (!page || y < 48 + height) newPage();
+  };
+
+  newPage();
+
+  const grandTotals = sortedRecords.reduce((acc, record) => {
+    const branch = record.branch || 'No Branch';
+    const amount = getExpenseAmount(record);
+    acc.amount += amount;
+    acc.paid += Number(record.paidAmount || 0);
+    acc.outstanding += Number(record.remainingAmount || 0);
+    acc.byBranch[branch] = (acc.byBranch[branch] || 0) + amount;
+    return acc;
+  }, { amount: 0, paid: 0, outstanding: 0, byBranch: {} });
+
+  const grouped = sortedRecords.reduce((acc, record) => {
+    const vendor = getExpenseVendorName(record);
+    if (!acc.has(vendor)) acc.set(vendor, []);
+    acc.get(vendor).push(record);
+    return acc;
+  }, new Map());
+
+  grouped.forEach((vendorRecords, vendorName) => {
+    const vendorTotals = vendorRecords.reduce((acc, record) => {
+      const branch = record.branch || 'No Branch';
+      const amount = getExpenseAmount(record);
+      acc.amount += amount;
+      acc.paid += Number(record.paidAmount || 0);
+      acc.outstanding += Number(record.remainingAmount || 0);
+      acc.byBranch[branch] = (acc.byBranch[branch] || 0) + amount;
+      return acc;
+    }, { amount: 0, paid: 0, outstanding: 0, byBranch: {} });
+
+    ensureSpace(summaryRowHeight + rowHeight * 2);
+    page.drawRectangle({ x: margin, y: y - 8, width: pageSize[0] - margin * 2, height: summaryRowHeight + 3, color: orangeFill, borderColor: rgb(1, 0.84, 0.68), borderWidth: 0.5 });
+    drawPdfText(page, vendorName, margin + 8, y - 3, { font: boldFont, size: 9, color: headerColor, maxWidth: 270 });
+    drawPdfText(page, `Vendor Total: BHD ${getPdfAmount(vendorTotals.amount)}`, 520, y - 3, { font: boldFont, size: 9, color: headerColor, maxWidth: 130 });
+    drawPdfText(page, `Outstanding: BHD ${getPdfAmount(vendorTotals.outstanding)}`, 665, y - 3, { font: boldFont, size: 9, color: headerColor, maxWidth: 130 });
+    y -= summaryRowHeight;
+
+    const branchSummary = Object.entries(vendorTotals.byBranch)
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+      .map(([branch, amount]) => `${branch}: BHD ${getPdfAmount(amount)}`)
+      .join('   |   ');
+    ensureSpace(summaryRowHeight);
+    drawPdfText(page, branchSummary || 'No branch totals', margin + 8, y - 2, { font, size: 8, color: muted, maxWidth: pageSize[0] - margin * 2 - 16 });
+    y -= summaryRowHeight;
+
+    vendorRecords.forEach(record => {
+      ensureSpace(rowHeight);
+      page.drawLine({ start: { x: margin, y: y + 4 }, end: { x: pageSize[0] - margin, y: y + 4 }, thickness: 0.35, color: line });
+      const values = [
+        record.date || formatDisplayDate(record.expenseDate),
+        getExpenseVendorName(record),
+        record.vendorCategory || '-',
+        record.invoiceNumber || '-',
+        record.branch || '-',
+        getPdfAmount(record.amount),
+        getPdfAmount(record.paidAmount),
+        getPdfAmount(record.remainingAmount),
+        record.paymentStatus || '-',
+      ];
+      columns.forEach((col, index) => {
+        const text = values[index] || '-';
+        const x = col.align === 'right' ? col.x + col.width - Math.min(String(text).length * 4.2, col.width) : col.x;
+        drawPdfText(page, text, x, y - 7, { font, size: 7.5, color: headerColor, maxWidth: col.width });
+      });
+      y -= rowHeight;
+    });
+
+    y -= 5;
+  });
+
+  ensureSpace(40);
+  page.drawRectangle({ x: margin, y: y - 30, width: pageSize[0] - margin * 2, height: 34, color: greenFill, borderColor: rgb(0.68, 0.9, 0.82), borderWidth: 0.6 });
+  drawPdfText(page, 'All Vendors Total', margin + 8, y - 7, { font: boldFont, size: 10, color: headerColor });
+  drawPdfText(page, `BHD ${getPdfAmount(grandTotals.amount)}`, 184, y - 7, { font: boldFont, size: 11, color: headerColor });
+  drawPdfText(page, `Paid: BHD ${getPdfAmount(grandTotals.paid)}`, 320, y - 7, { font: boldFont, size: 9, color: headerColor });
+  drawPdfText(page, `Outstanding: BHD ${getPdfAmount(grandTotals.outstanding)}`, 450, y - 7, { font: boldFont, size: 9, color: headerColor });
+  const allBranchSummary = Object.entries(grandTotals.byBranch)
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    .map(([branch, amount]) => `${branch}: BHD ${getPdfAmount(amount)}`)
+    .join('   |   ');
+  drawPdfText(page, allBranchSummary || 'No branch totals', margin + 8, y - 23, { font, size: 8, color: muted, maxWidth: pageSize[0] - margin * 2 - 16 });
+};
+
 const addAttachmentPage = async (pdfDoc, attachment) => {
   try {
     const { bytes, type } = await fetchAttachmentBlob(attachment.url);
@@ -958,9 +1115,9 @@ const selectedTotal = expenses
   };
 
   const handleExportAttachmentsPDF = async () => {
-    const records = selectedIDs.length
+    const records = sortExpensesForAttachmentPdf(selectedIDs.length
       ? filtered.filter(item => selectedIDs.includes(item.id))
-      : filtered;
+      : filtered);
 
     const attachments = records.flatMap(record => {
       const fileLinks = getAttachmentLinks(record.attachments).map((url, index) => ({
@@ -984,6 +1141,7 @@ const selectedTotal = expenses
     }
 
     const pdfDoc = await PDFDocument.create();
+    await addExpensesAttachmentSummaryPages(pdfDoc, records);
     for (const attachment of attachments) {
       await addAttachmentPage(pdfDoc, attachment);
     }
