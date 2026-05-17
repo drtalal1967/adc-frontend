@@ -171,7 +171,8 @@ export default function Leaves() {
   const canApprove = isAdmin && checkPermission('leaves', 'update');
   const canApply = checkPermission('leaves', 'create');
   const canDelete = isAdmin && checkPermission('leaves', 'delete');
-  const isPersonalView = !canApprove;
+  const canViewAllRequests = isAdmin || checkPermission('leaves_all', 'view');
+  const isPersonalView = !canViewAllRequests;
   const isEmployee = isPersonalView;
   const [leaves, setLeaves] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -195,8 +196,8 @@ export default function Leaves() {
       const leavesRes = await API.get('/leave-requests');
       setLeaves(leavesRes.data);
 
-      // Fetch employees list only if user can approve (admin/manager)
-      if (canApprove) {
+      // Fetch employees list only when this role can see all requests.
+      if (canViewAllRequests) {
         try {
           const empsRes = await API.get('/employees');
           setEmployees(empsRes.data);
@@ -279,7 +280,7 @@ export default function Leaves() {
   };
 
   const activeEmpId = user.employeeId || employees.find(e => e.userId === user.id)?.id;
-  const myLeaves = isEmployee ? leaves.filter(l => Number(l.employeeId) === Number(activeEmpId)) : leaves;
+  const myLeaves = isPersonalView ? leaves.filter(l => Number(l.employeeId) === Number(activeEmpId)) : leaves;
   const displayLeaveType = (type) => String(type || '')
     .replace(/_/g, ' ')
     .toLowerCase()
@@ -312,7 +313,7 @@ export default function Leaves() {
     { label: 'Sick Leave', count: myBalance.sick?.remaining ?? myBalance.sick?.totalRemaining ?? 0, color: 'text-rose-500', accent: 'bg-rose-500', icon: <AlertCircle size={24} /> },
   ] : [];
 
-  const ALL_STATS = canApprove ? [...EMPLOYEE_BALANCES, ...STATS] : EMPLOYEE_BALANCES;
+  const ALL_STATS = canViewAllRequests ? [...EMPLOYEE_BALANCES, ...STATS] : EMPLOYEE_BALANCES;
   const canDeleteLeave = (leave) => canDelete || (
     isPersonalView &&
     leave?.status === 'PENDING' &&
@@ -334,9 +335,9 @@ export default function Leaves() {
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-gray-800 tracking-tight leading-none">{canApprove ? 'Leave Requests' : 'My Leave Requests'}</h1>
+          <h1 className="text-2xl font-black text-gray-800 tracking-tight leading-none">{canViewAllRequests ? 'Leave Requests' : 'My Leave Requests'}</h1>
           <p className="text-sm text-gray-500 mt-1.5 font-medium">
-            {canApprove
+            {canViewAllRequests
               ? `${filteredLeaves.filter(l => l.status === 'PENDING').length} pending requests`
               : 'Request leave and track your own approvals'}
           </p>
@@ -349,8 +350,8 @@ export default function Leaves() {
       </div>
 
       <div className="bg-white border border-gray-100 rounded-[1.5rem] p-4 shadow-sm">
-        <div className={`grid grid-cols-1 ${canApprove ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-3`}>
-          {canApprove && (
+        <div className={`grid grid-cols-1 ${canViewAllRequests ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-3`}>
+          {canViewAllRequests && (
             <select
               value={employeeFilter}
               onChange={e => setEmployeeFilter(e.target.value)}
@@ -398,7 +399,7 @@ export default function Leaves() {
 
       {/* Stats */}
       {ALL_STATS.length > 0 && (
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${canApprove ? 'lg:grid-cols-5' : 'lg:grid-cols-2'} gap-4 mb-8`}>
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${canViewAllRequests ? 'lg:grid-cols-5' : 'lg:grid-cols-2'} gap-4 mb-8`}>
         {ALL_STATS.map(stat => (
           <div key={stat.label} className={`relative overflow-hidden group p-5 rounded-[1.5rem] border border-white shadow-lg shadow-gray-100/30 transition-all duration-300 hover:scale-[1.01] hover:shadow-xl hover:shadow-gray-200/40 bg-gradient-to-br ${
             stat.label === 'Pending' ? 'from-orange-50 to-amber-50/50' :
