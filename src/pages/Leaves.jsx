@@ -307,12 +307,12 @@ export default function Leaves() {
     { label: 'Rejected', count: filteredLeaves.filter(l => l.status === 'REJECTED').length, color: 'text-red-500', accent: 'bg-red-500', icon: <XCircle size={24} /> },
   ];
 
-  const EMPLOYEE_BALANCES = isPersonalView && myBalance ? [
+  const EMPLOYEE_BALANCES = myBalance ? [
     { label: 'Annual Leave', count: myBalance.annual?.remaining ?? myBalance.annual?.totalRemaining ?? 0, color: 'text-primary', accent: 'bg-primary', icon: <Calendar size={24} /> },
     { label: 'Sick Leave', count: myBalance.sick?.remaining ?? myBalance.sick?.totalRemaining ?? 0, color: 'text-rose-500', accent: 'bg-rose-500', icon: <AlertCircle size={24} /> },
   ] : [];
 
-  const ALL_STATS = canApprove ? STATS : EMPLOYEE_BALANCES;
+  const ALL_STATS = canApprove ? [...EMPLOYEE_BALANCES, ...STATS] : EMPLOYEE_BALANCES;
   const canDeleteLeave = (leave) => canDelete || (
     isPersonalView &&
     leave?.status === 'PENDING' &&
@@ -398,7 +398,7 @@ export default function Leaves() {
 
       {/* Stats */}
       {ALL_STATS.length > 0 && (
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${canApprove ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-4 mb-8`}>
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${canApprove ? 'lg:grid-cols-5' : 'lg:grid-cols-2'} gap-4 mb-8`}>
         {ALL_STATS.map(stat => (
           <div key={stat.label} className={`relative overflow-hidden group p-5 rounded-[1.5rem] border border-white shadow-lg shadow-gray-100/30 transition-all duration-300 hover:scale-[1.01] hover:shadow-xl hover:shadow-gray-200/40 bg-gradient-to-br ${
             stat.label === 'Pending' ? 'from-orange-50 to-amber-50/50' :
