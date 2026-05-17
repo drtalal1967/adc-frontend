@@ -2201,25 +2201,40 @@ const handleExportAttachmentsPDF = async () => {
         </>
       )}
 
-      <button type="button" onClick={() => setViewItem(c)}>👁</button>
-
       <button
         type="button"
-        onClick={() => {
-          console.log("EDIT CLICKED");
-          setEditItem(c);
-          setModal('edit');
-        }}
+        onClick={() => setViewItem(c)}
+        className="p-2 text-gray-400 hover:text-primary transition-colors"
+        title="View"
       >
-        ✏️
+        <Eye size={16} />
       </button>
 
-      <button
-        type="button"
-        onClick={() => setConfirmDelete(c.id)}
-      >
-        🗑
-      </button>
+      {checkPermission('lab_cases', 'update') && (
+        <button
+          type="button"
+          onClick={() => {
+            console.log("EDIT CLICKED");
+            setEditItem(c);
+            setModal('edit');
+          }}
+          className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+          title="Edit"
+        >
+          <Edit2 size={16} />
+        </button>
+      )}
+
+      {checkPermission('lab_cases', 'delete') && (
+        <button
+          type="button"
+          onClick={() => setConfirmDelete(c.id)}
+          className="p-2 text-gray-400 hover:text-rose-600 transition-colors"
+          title="Delete"
+        >
+          <Trash2 size={16} />
+        </button>
+      )}
 
       </div>
     </td>
