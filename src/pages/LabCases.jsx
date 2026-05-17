@@ -490,12 +490,12 @@ useEffect(() => {
                   <select 
                     value={form.branch} 
                     onChange={e => setForm({ ...form, branch: e.target.value })}
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
+                    className="h-12 w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 pr-10 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     <option value="Tubli Branch">Tubli Branch</option>
                     <option value="Manama Branch">Manama Branch</option>
                   </select>
-                  <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
+                  <ChevronRight className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
                 </div>
               </div>
               <div className="space-y-2">
@@ -505,12 +505,12 @@ useEffect(() => {
                     required
                     value={form.labId} 
                     onChange={e => setForm({ ...form, labId: e.target.value })}
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
+                    className="h-12 w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 pr-10 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     <option value="">Select Lab</option>
                     {labs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
-                  <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
+                  <ChevronRight className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
                 </div>
               </div>
               <div className="space-y-2">
@@ -520,12 +520,12 @@ useEffect(() => {
                     required
                     value={form.dentistId} 
                     onChange={e => setForm({ ...form, dentistId: e.target.value })}
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
+                    className="h-12 w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 pr-10 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     <option value="">Select Dentist</option>
                     {dentists.map(d => <option key={d.id} value={d.id}>{d.firstName} {d.lastName}</option>)}
                   </select>
-                  <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
+                  <ChevronRight className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
                 </div>
               </div>
               <div className="space-y-2">
@@ -539,7 +539,7 @@ useEffect(() => {
   <select 
     value={form.prosthesis} 
     onChange={e => setForm({ ...form, prosthesis: e.target.value })}
-    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
+    className="h-12 w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 pr-10 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
   >
     <option value="">Select type</option>
 
@@ -551,7 +551,7 @@ useEffect(() => {
   </select>
 
   <ChevronRight
-    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90"
+    className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90"
     size={18}
   />
 </div>
@@ -562,11 +562,11 @@ useEffect(() => {
                   <select 
                     value={form.status} 
                     onChange={e => setForm({ ...form, status: e.target.value })}
-                    className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
+                    className="h-12 w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 px-3 pr-10 text-sm font-medium focus:bg-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition"
                   >
                     {['Pending', 'Completed'].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                  <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
+                  <ChevronRight className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
                 </div>
               </div>
               <div className="space-y-2">
@@ -726,7 +726,7 @@ useEffect(() => {
                               <option value="Pickup">Pickup</option>
                               <option value="Delivery">Delivery</option>
                             </select>
-                            <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={16} />
+                            <ChevronRight className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={16} />
                           </div>
                        </div>
                        <div className="space-y-2">
@@ -1105,7 +1105,7 @@ const totalCost = selectedCases.reduce(
                        <option value="Bank Transfer">Bank Transfer</option>
                        <option value="Cheque">Cheque</option>
                     </select>
-                    <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
+                    <ChevronRight className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={18} />
                  </div>
               </div>
 
