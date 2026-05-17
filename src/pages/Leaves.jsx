@@ -171,7 +171,8 @@ export default function Leaves() {
   const canApprove = isAdmin && checkPermission('leaves', 'update');
   const canApply = checkPermission('leaves', 'create');
   const canDelete = isAdmin && checkPermission('leaves', 'delete');
-  const isEmployee = canApply && !canApprove;
+  const isPersonalView = !canApprove;
+  const isEmployee = isPersonalView;
   const [leaves, setLeaves] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [modal, setModal] = useState(false);
@@ -306,12 +307,17 @@ export default function Leaves() {
     { label: 'Rejected', count: filteredLeaves.filter(l => l.status === 'REJECTED').length, color: 'text-red-500', accent: 'bg-red-500', icon: <XCircle size={24} /> },
   ];
 
-  const EMPLOYEE_BALANCES = isEmployee && myBalance ? [
+  const EMPLOYEE_BALANCES = isPersonalView && myBalance ? [
     { label: 'Annual Leave', count: myBalance.annual?.remaining ?? myBalance.annual?.totalRemaining ?? 0, color: 'text-primary', accent: 'bg-primary', icon: <Calendar size={24} /> },
     { label: 'Sick Leave', count: myBalance.sick?.remaining ?? myBalance.sick?.totalRemaining ?? 0, color: 'text-rose-500', accent: 'bg-rose-500', icon: <AlertCircle size={24} /> },
   ] : [];
 
   const ALL_STATS = canApprove ? STATS : EMPLOYEE_BALANCES;
+  const canDeleteLeave = (leave) => canDelete || (
+    isPersonalView &&
+    leave?.status === 'PENDING' &&
+    Number(leave?.employeeId) === Number(activeEmpId)
+  );
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -335,7 +341,7 @@ export default function Leaves() {
               : 'Request leave and track your own approvals'}
           </p>
         </div>
-        {isEmployee && (
+        {canApply && isPersonalView && (
           <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-8 py-3 rounded-2xl shadow-xl shadow-primary/20 font-bold text-sm transform transition-transform hover:scale-105 active:scale-95 leading-none">
             <Plus size={18} /> Request Leave
           </button>
@@ -544,7 +550,7 @@ export default function Leaves() {
                       <X size={18} strokeWidth={3} />
                     </button>
                   )}
-                  {canDelete && (
+                  {canDeleteLeave(l) && (
                     <button 
                       onClick={() => handleDelete(l.id)}
                       className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-all shadow-sm flex items-center justify-center active:scale-95 border border-gray-100"
@@ -554,6 +560,15 @@ export default function Leaves() {
                     </button>
                   )}
                 </div>
+              )}
+              {!canApprove && canDeleteLeave(l) && (
+                <button 
+                  onClick={() => handleDelete(l.id)}
+                  className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-all shadow-sm flex items-center justify-center active:scale-95 border border-gray-100"
+                  title="Delete Pending Request"
+                >
+                  <Trash2 size={16} />
+                </button>
               )}
               
               <div className="hidden lg:block text-gray-200 group-hover:text-gray-400 transition-colors px-2">
