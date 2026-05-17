@@ -342,7 +342,7 @@ export default function Leaves() {
               : 'Request leave and track your own approvals'}
           </p>
         </div>
-        {canApply && isPersonalView && (
+        {canApply && !isAdmin && (
           <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-8 py-3 rounded-2xl shadow-xl shadow-primary/20 font-bold text-sm transform transition-transform hover:scale-105 active:scale-95 leading-none">
             <Plus size={18} /> Request Leave
           </button>
