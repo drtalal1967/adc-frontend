@@ -25,7 +25,6 @@ import autoTable from 'jspdf-autotable';
 const LEAVE_TYPES = [
   { id: 'annual', label: 'Annual Leave', color: 'primary' },
   { id: 'sick', label: 'Sick Leave', color: 'rose' },
-  { id: 'relativesDeath', label: 'Relatives Death Leave', color: 'slate' },
   { id: 'hajj', label: 'Hajj Leave', color: 'emerald' },
   { id: 'marriage', label: 'Marriage Leave', color: 'indigo' },
   { id: 'others', label: 'Others', color: 'orange' },
@@ -57,7 +56,6 @@ function ViewBalanceModal({ item, onClose }) {
   const LEAVE_TYPE_LABELS = [
     { id: 'annual',        label: 'Annual Leave',         color: 'text-primary',    bg: 'bg-primary/10' },
     { id: 'sick',          label: 'Sick Leave',            color: 'text-rose-500',   bg: 'bg-rose-50' },
-    { id: 'relativesDeath',label: 'Relatives Death Leave', color: 'text-slate-500',  bg: 'bg-slate-50' },
     { id: 'hajj',          label: 'Hajj Leave',            color: 'text-emerald-500',bg: 'bg-emerald-50' },
     { id: 'marriage',      label: 'Marriage Leave',        color: 'text-indigo-500', bg: 'bg-indigo-50' },
     { id: 'others',        label: 'Others',                color: 'text-orange-500', bg: 'bg-orange-50' },
@@ -96,7 +94,6 @@ function ViewBalanceModal({ item, onClose }) {
 const LEAVE_TYPE_MAP = {
   annual: 'ANNUAL',
   sick: 'SICK',
-  relativesDeath: 'RELATIVES_DEATH',
   hajj: 'HAJJ',
   marriage: 'MARRIAGE',
   others: 'OTHERS',
@@ -316,7 +313,6 @@ export default function LeaveBalanceManagement() {
       employee: employees.find(e => e.id === id),
       annual: { total: 30, used: 0, remaining: 30 },
       sick: { total: 15, used: 0, remaining: 15 },
-      relativesDeath: { total: 3, used: 0, remaining: 3 },
       hajj: { total: 10, used: 0, remaining: 10 },
       marriage: { total: 15, used: 0, remaining: 15 },
       others: { total: 5, used: 0, remaining: 5 },
@@ -328,7 +324,6 @@ export default function LeaveBalanceManagement() {
       setEditFormData({ 
         annual: { total: b.annual.total, used: b.annual.used, remaining: b.annual.remaining },
         sick: { total: b.sick.total, used: b.sick.used, remaining: b.sick.remaining },
-        relativesDeath: { total: b.relativesDeath?.total || 0, used: b.relativesDeath?.used || 0, remaining: b.relativesDeath?.remaining || 0 },
         hajj: { total: b.hajj?.total || 0, used: b.hajj?.used || 0, remaining: b.hajj?.remaining || 0 },
         marriage: { total: b.marriage?.total || 0, used: b.marriage?.used || 0, remaining: b.marriage?.remaining || 0 },
         others: { total: b.others?.total || 0, used: b.others?.used || 0, remaining: b.others?.remaining || 0 },
@@ -926,7 +921,6 @@ export default function LeaveBalanceManagement() {
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Employee Name</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Annual</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Sick</th>
-                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Relatives Death</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Hajj</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Marriage</th>
                 <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Others</th>
@@ -955,7 +949,6 @@ export default function LeaveBalanceManagement() {
                       {b.sick.remaining}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-center text-xs font-bold text-gray-400">{b.relativesDeath.remaining}</td>
                   <td className="px-6 py-4 text-center text-xs font-bold text-gray-400">{b.hajj.remaining}</td>
                   <td className="px-6 py-4 text-center text-xs font-bold text-gray-400">{b.marriage.remaining}</td>
                   <td className="px-6 py-4 text-center text-xs font-bold text-gray-400">{b.others.remaining}</td>
@@ -1054,10 +1047,6 @@ export default function LeaveBalanceManagement() {
                 <div className="bg-gray-50/50 p-3 rounded-2xl border border-gray-100">
                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Marriage</p>
                   <span className={`text-lg font-black ${b.marriage.remaining > 0 ? 'text-indigo-500' : 'text-gray-300'}`}>{b.marriage.remaining}</span>
-                </div>
-                <div className="bg-gray-50/50 p-3 rounded-2xl border border-gray-100">
-                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Death</p>
-                  <span className={`text-lg font-black ${b.relativesDeath.remaining > 0 ? 'text-slate-500' : 'text-gray-300'}`}>{b.relativesDeath.remaining}</span>
                 </div>
                 <div className="bg-gray-50/50 p-3 rounded-2xl border border-gray-100">
                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Maternity</p>
