@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import API, { BACKEND_URL } from '../api';
+import FileUpload from '../components/FileUpload';
+import FilePreviewModal from '../components/FilePreviewModal';
 import { useAuth } from '../context/AuthContext';
 import { useLeaveContext } from '../context/LeaveContext';
 import { 
@@ -14,7 +16,9 @@ import {
   MessageSquare,
   ChevronRight,
   Calendar,
-  Trash2
+  Trash2,
+  FileText,
+  Paperclip
 } from 'lucide-react';
 
 const LEAVE_TYPES = ['Annual Leave', 'Sick Leave', 'Relatives Death Leave', 'Maternity Leave', 'Hajj Leave', 'Marriage Leave', 'Others'];
@@ -45,10 +49,11 @@ const normalizeImageUrl = (url) => {
 };
 
 function RequestModal({ onClose, onSave, user }) {
-  const [form, setForm] = useState({ type: 'Annual Leave', from: '', to: '', reason: '', branch: 'Manama Branch', isHalfDay: false });
+  const [form, setForm] = useState({ type: 'Annual Leave', from: '', to: '', reason: '', branch: 'Manama Branch' });
+  const [attachments, setAttachments] = useState([]);
+  const [previewFile, setPreviewFile] = useState(null);
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  let days = form.from && form.to ? Math.max(1, Math.round((new Date(form.to) - new Date(form.from)) / (1000 * 60 * 60 * 24)) + 1) : 0;
-  if (days > 0 && form.isHalfDay) days -= 0.5;
+  const days = form.from && form.to ? Math.max(1, Math.round((new Date(form.to) - new Date(form.from)) / (1000 * 60 * 60 * 24)) + 1) : 0;
   
   const BRANCHES = ['Manama Branch', 'Tubli Branch'];
 
@@ -80,18 +85,6 @@ function RequestModal({ onClose, onSave, user }) {
               <input type="date" value={form.to} onChange={e => update('to', e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20" />
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-2">
-            <input 
-              type="checkbox" 
-              id="isHalfDay" 
-              checked={form.isHalfDay} 
-              onChange={e => update('isHalfDay', e.target.checked)} 
-              className="w-4 h-4 text-primary bg-gray-50 border-gray-300 rounded focus:ring-primary/20 cursor-pointer" 
-            />
-            <label htmlFor="isHalfDay" className="text-xs font-bold text-gray-500 cursor-pointer select-none">
-              This leave includes a Half Day (-0.5 days)
-            </label>
-          </div>
           {days > 0 && (
             <div className="bg-primary/5 border border-primary/10 rounded-2xl px-4 py-3 flex items-center gap-3">
               <Clock size={16} className="text-primary" />
@@ -102,12 +95,107 @@ function RequestModal({ onClose, onSave, user }) {
             <label className="text-[11px] font-bold text-gray-500 uppercase mb-2 block tracking-widest">Reason for Leave</label>
             <textarea rows={3} value={form.reason} onChange={e => update('reason', e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="Please provide a brief reason..." />
           </div>
+          {true && (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white text-primary flex items-center justify-center border border-blue-100 shrink-0">
+                  <Paperclip size={16} />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-gray-800">Supporting Attachment</p>
+                  <p className="text-xs font-semibold text-gray-500 mt-0.5">Attach a supporting document from your phone camera or as a PDF/image file.</p>
+                </div>
+              </div>
+              <FileUpload
+                value={attachments}
+                onChange={setAttachments}
+                onPreview={setPreviewFile}
+                label="Leave Attachment"
+                multiple
+                accept="image/*,application/pdf"
+              />
+            </div>
+          )}
+          {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
         </div>
         <div className="px-8 py-6 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-4">
           <button onClick={onClose} className="px-6 py-3 rounded-2xl font-bold text-gray-500 hover:bg-gray-100 transition-all text-sm">Cancel</button>
           <button onClick={() => {
-            onSave({ ...form, employeeName: user.name, role: user.role, employeeId: user.id, days, status: 'Pending', id: Date.now() });
+            onSave({ ...form, attachments, employeeName: user.name, role: user.role, employeeId: user.id, days, status: 'Pending', id: Date.now() });
           }} className="bg-primary hover:bg-primary-dark text-white px-8 py-3 rounded-2xl shadow-lg shadow-primary/20 font-black text-sm transition-all active:scale-95">Submit Request</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SickLeaveAttachmentModal({ leave, onClose, onUploaded }) {
+  const [files, setFiles] = useState([]);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const handleUpload = async () => {
+    const selectedFiles = Array.isArray(files) ? files : [];
+    if (selectedFiles.length === 0) {
+      alert('Please select at least one attachment file.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await Promise.all(selectedFiles.map(fileObj => {
+        const uploadFile = fileObj?.file || fileObj;
+        if (!uploadFile) return Promise.resolve();
+
+        const uploadData = new FormData();
+        uploadData.append('file', uploadFile);
+        uploadData.append('leaveRequestId', leave.id);
+        uploadData.append('category', 'Leave Request');
+        uploadData.append('title', fileObj?.name || uploadFile.name || 'Leave Attachment');
+        uploadData.append('description', `${fd.type} supporting attachment`);
+        uploadData.append('source', 'LEAVE_REQUEST');
+        return API.post('/documents/upload', uploadData);
+      }));
+      onUploaded();
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to upload attachment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay z-[120]" onClick={onClose}>
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+      <div className="modal-content max-w-lg bg-white overflow-hidden shadow-2xl animate-scale-in" onClick={e => e.stopPropagation()}>
+        <div className="bg-sidebar px-8 py-6 flex items-center justify-between text-white border-b border-white/5">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60">Leave Attachment</p>
+            <h2 className="font-bold text-xl tracking-tight">Add Supporting Attachment</h2>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-all text-white/70 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-8 space-y-4">
+          <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-sm font-semibold text-gray-600">
+            Upload the certificate for this Sick Leave request. Images from the phone camera and PDF files are supported.
+          </div>
+          <FileUpload
+            value={files}
+            onChange={setFiles}
+            onPreview={setPreviewFile}
+            label="Leave Attachment"
+            multiple
+            accept="image/*,application/pdf"
+          />
+        </div>
+        <div className="px-8 py-6 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-4">
+          <button onClick={onClose} disabled={saving} className="px-6 py-3 rounded-2xl font-bold text-gray-500 hover:bg-gray-100 transition-all text-sm disabled:opacity-50">Cancel</button>
+          <button onClick={handleUpload} disabled={saving || files.length === 0} className="bg-primary hover:bg-primary-dark text-white px-8 py-3 rounded-2xl shadow-lg shadow-primary/20 font-black text-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            {saving ? 'Uploading...' : 'Upload Attachment'}
+          </button>
         </div>
       </div>
     </div>
@@ -180,14 +268,21 @@ export default function Leaves() {
   const [actionModal, setActionModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [myBalance, setMyBalance] = useState(null);
+  const [myEmploymentType, setMyEmploymentType] = useState(user?.employmentType || 'FULL_TIME');
   const [employeeFilter, setEmployeeFilter] = useState('All');
   const [leaveTypeFilter, setLeaveTypeFilter] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [previewFile, setPreviewFile] = useState(null);
+  const [attachmentModal, setAttachmentModal] = useState(null);
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (user?.employmentType) setMyEmploymentType(user.employmentType);
+  }, [user?.employmentType]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -210,6 +305,9 @@ export default function Leaves() {
       const effectiveEmpId = user.employeeId;
       if (effectiveEmpId) {
         try {
+          if (user?.employmentType) {
+            setMyEmploymentType(user.employmentType);
+          }
           const balRes = await API.get(`/leave-balance/${effectiveEmpId}`);
           setMyBalance(balRes.data);
         } catch (balErr) {
@@ -225,6 +323,9 @@ export default function Leaves() {
 
   const handleApply = async (fd) => {
     try {
+      if (String(myEmploymentType || '').toUpperCase() === 'PART_TIME') {
+        throw new Error('Leave requests are disabled for part-time employees.');
+      }
       const empId = user.employeeId || employees.find(e => e.userId === user.id)?.id;
       if (!empId) throw new Error('Employee ID not found. Cannot apply for leave.');
 
@@ -244,10 +345,28 @@ export default function Leaves() {
         startDate: fd.from,
         endDate: fd.to,
         reason: fd.reason,
-        branch: fd.branch,
-        isHalfDay: fd.isHalfDay
+        branch: fd.branch
       };
-      await API.post('/leave-requests', payload);
+      const response = await API.post('/leave-requests', payload);
+      const leaveRequestId = response.data?.id;
+      const files = Array.isArray(fd.attachments) ? fd.attachments : [];
+
+      if (leaveRequestId && files.length > 0) {
+        await Promise.all(files.map(fileObj => {
+          const uploadFile = fileObj?.file || fileObj;
+          if (!uploadFile) return Promise.resolve();
+
+          const uploadData = new FormData();
+          uploadData.append('file', uploadFile);
+          uploadData.append('leaveRequestId', leaveRequestId);
+          uploadData.append('category', 'Leave Request');
+          uploadData.append('title', fileObj?.name || uploadFile.name || 'Leave Attachment');
+          uploadData.append('description', `${fd.type} supporting attachment`);
+          uploadData.append('source', 'LEAVE_REQUEST');
+          return API.post('/documents/upload', uploadData);
+        }));
+      }
+
       fetchData();
       setModal(false);
     } catch (err) {
@@ -257,8 +376,32 @@ export default function Leaves() {
 
   const handleAction = async (comment) => {
     try {
+      const requestedAction = actionModal.action.toUpperCase();
+      const leave = leaves.find(item => Number(item.id) === Number(actionModal.id));
+
+      if (requestedAction === 'APPROVED' && String(leave?.leaveType || '').toUpperCase() === 'ANNUAL') {
+        const balanceRes = await API.get(`/leave-balance/${leave.employeeId}`);
+        const annualBalance = balanceRes.data?.annual || {};
+        const remaining = Number(annualBalance.remaining ?? annualBalance.totalRemaining ?? 0);
+        const requestedDays = Number(leave.totalDays || 0);
+        const projectedBalance = remaining - requestedDays;
+
+        if (projectedBalance < 0) {
+          const employeeName = leave.employee ? `${leave.employee.firstName || ''} ${leave.employee.lastName || ''}`.trim() : 'this employee';
+          const shouldApprove = window.confirm(
+            `${employeeName} does not have enough annual leave balance.\n\n` +
+            `Current balance: ${remaining.toFixed(2)} days\n` +
+            `Requested leave: ${requestedDays.toFixed(2)} days\n` +
+            `Balance after approval: ${projectedBalance.toFixed(2)} days\n\n` +
+            'Do you still want to approve this leave request?'
+          );
+
+          if (!shouldApprove) return;
+        }
+      }
+
       await API.put(`/leave-requests/${actionModal.id}/status`, {
-        status: actionModal.action.toUpperCase(),
+        status: requestedAction,
         reviewNotes: comment
       });
       fetchData();
@@ -279,7 +422,20 @@ export default function Leaves() {
     }
   };
 
+  const handleDeleteLeaveAttachment = async (leave, doc) => {
+    if (!doc?.id) return;
+    if (!canManageLeaveAttachment(leave)) return;
+    if (!window.confirm('Delete this leave attachment?')) return;
+    try {
+      await API.delete(`/documents/${doc.id}`);
+      fetchData();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete attachment');
+    }
+  };
+
   const activeEmpId = user.employeeId || employees.find(e => e.userId === user.id)?.id;
+  const isPartTimeEmployee = String(myEmploymentType || '').toUpperCase() === 'PART_TIME';
   const myLeaves = isPersonalView ? leaves.filter(l => Number(l.employeeId) === Number(activeEmpId)) : leaves;
   const displayLeaveType = (type) => String(type || '')
     .replace(/_/g, ' ')
@@ -308,12 +464,15 @@ export default function Leaves() {
     { label: 'Rejected', count: filteredLeaves.filter(l => l.status === 'REJECTED').length, color: 'text-red-500', accent: 'bg-red-500', icon: <XCircle size={24} /> },
   ];
 
-  const EMPLOYEE_BALANCES = myBalance ? [
+  const EMPLOYEE_BALANCES = myBalance && !isPartTimeEmployee ? [
     { label: 'Annual Leave', count: myBalance.annual?.remaining ?? myBalance.annual?.totalRemaining ?? 0, color: 'text-primary', accent: 'bg-primary', icon: <Calendar size={24} /> },
     { label: 'Sick Leave', count: myBalance.sick?.remaining ?? myBalance.sick?.totalRemaining ?? 0, color: 'text-rose-500', accent: 'bg-rose-500', icon: <AlertCircle size={24} /> },
   ] : [];
 
   const ALL_STATS = canViewAllRequests ? [...EMPLOYEE_BALANCES, ...STATS] : EMPLOYEE_BALANCES;
+  const isAnnualLeave = (leave) => String(leave?.leaveType || '').toUpperCase().includes('ANNUAL');
+  const isOwnLeaveRequest = (leave) => Number(leave?.employeeId) === Number(activeEmpId);
+  const canManageLeaveAttachment = (leave) => isAdmin || isOwnLeaveRequest(leave);
   const canDeleteLeave = (leave) => canDelete || (
     isPersonalView &&
     leave?.status === 'PENDING' &&
@@ -322,7 +481,9 @@ export default function Leaves() {
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
       {modal && <RequestModal user={user} onClose={() => setModal(false)} onSave={handleApply} />}
+      {attachmentModal && <SickLeaveAttachmentModal leave={attachmentModal} onClose={() => setAttachmentModal(null)} onUploaded={fetchData} />}
       
       {actionModal && (
         <ActionModal 
@@ -342,12 +503,19 @@ export default function Leaves() {
               : 'Request leave and track your own approvals'}
           </p>
         </div>
-        {canApply && !isAdmin && (
+        {canApply && !isAdmin && !isPartTimeEmployee && (
           <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 px-8 py-3 rounded-2xl shadow-xl shadow-primary/20 font-bold text-sm transform transition-transform hover:scale-105 active:scale-95 leading-none">
             <Plus size={18} /> Request Leave
           </button>
         )}
       </div>
+
+      {isPartTimeEmployee && !isAdmin && (
+        <div className="bg-amber-50 border border-amber-100 rounded-[1.5rem] px-5 py-4 text-amber-800 font-bold text-sm flex items-start gap-3">
+          <AlertCircle size={18} className="mt-0.5 shrink-0" />
+          <span>Leave requests and leave balances are disabled for part-time employees.</span>
+        </div>
+      )}
 
       <div className="bg-white border border-gray-100 rounded-[1.5rem] p-4 shadow-sm">
         <div className={`grid grid-cols-1 ${canViewAllRequests ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-3`}>
@@ -516,6 +684,48 @@ export default function Leaves() {
                       l.status === 'REJECTED' ? 'text-rose-700' :
                       'text-orange-700'
                     }`}><span className="font-black uppercase tracking-widest text-[9px] mr-1.5 opacity-70">Admin Note:</span>"{l.reviewNotes}"</p>
+                  </div>
+                )}
+                {canManageLeaveAttachment(l) && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAttachmentModal(l)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-[11px] font-black text-orange-700 hover:bg-orange-100 transition-colors"
+                    >
+                      <Paperclip size={13} />
+                      Add Attachment
+                    </button>
+                  </div>
+                )}
+                {Array.isArray(l.documents) && l.documents.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {l.documents.map((doc, docIndex) => (
+                      <div
+                        key={doc.id || docIndex}
+                        className="inline-flex items-center gap-1 rounded-xl border border-blue-100 bg-blue-50 px-1.5 py-1.5"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setPreviewFile(doc)}
+                          className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] font-black text-primary hover:bg-blue-100 transition-colors"
+                          title={doc.fileName || doc.title || 'Attachment'}
+                        >
+                          <FileText size={13} />
+                          Attachment {docIndex + 1}
+                        </button>
+                        {canManageLeaveAttachment(l) && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLeaveAttachment(l, doc)}
+                            className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-100 transition-colors"
+                            title="Delete attachment"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

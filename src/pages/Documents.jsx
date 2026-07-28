@@ -10,7 +10,30 @@ import PaginationControls from '../components/PaginationControls';
 import { useAuth } from '../context/AuthContext';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
-const DEFAULT_CATEGORIES = ['Expense', 'Employee', 'Payment', 'Daily Income Sheet', 'License', 'Work Permit', 'Visa', 'Agreement', 'ID', 'General'];
+const DEFAULT_CATEGORIES = ['Lab Case', 'Expense', 'Employee', 'Payment', 'Daily Income Sheet', 'License', 'Work Permit', 'Visa', 'Agreement', 'ID', 'General'];
+const CATEGORY_LABELS = {
+  'Lab Case': 'Lab Cases',
+};
+const getCategoryLabel = (category) => CATEGORY_LABELS[category] || category;
+const dedupeDocumentRows = (documents) => {
+  const seen = new Set();
+  return documents.filter((doc) => {
+    const key = [
+      doc.fileName,
+      doc.fileSizeKb,
+      doc.title,
+      doc.category,
+      doc.uploadDate,
+      doc.relatedType,
+      doc.relatedLabel,
+      doc.uploadedBy,
+    ].map(value => String(value || '').trim().toLowerCase()).join('|');
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 const A4_SIZE = [595.28, 841.89];
 
@@ -308,11 +331,15 @@ export default function Documents() {
     setLoading(true);
     try {
       const res = await API.get('/documents');
-      const data = res.data.map(doc => {
+      const data = dedupeDocumentRows(res.data.map(doc => {
         const url = doc.fileUrl || '';
         const cleanUrl = url.startsWith('/') ? url : `/${url}`;
         const fullUrl = url.startsWith('http') ? url : `${BACKEND_URL}${cleanUrl}`;
         return { ...doc, fileUrl: fullUrl };
+      })).sort((a, b) => {
+        const dateA = new Date(a.uploadedAt || a.createdAt || a.uploadDate || 0).getTime();
+        const dateB = new Date(b.uploadedAt || b.createdAt || b.uploadDate || 0).getTime();
+        return dateB - dateA || Number(b.id || 0) - Number(a.id || 0);
       });
       setDocs(data);
     } catch (err) {
@@ -330,7 +357,11 @@ export default function Documents() {
 
   const filteredDocs = useMemo(() => {
     return docs.filter(d => {
-      const matchSearch = d.title.toLowerCase().includes(search.toLowerCase()) || d.fileName.toLowerCase().includes(search.toLowerCase());
+      const searchText = [d.title, d.fileName, d.category, d.relatedLabel, d.relatedType, d.uploadedBy]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const matchSearch = searchText.includes(search.toLowerCase());
       const matchCat = filterCategory === 'All' || d.category === filterCategory;
       const uploadDate = new Date(d.uploadDate);
       const matchFrom = !filterDateFrom || (uploadDate >= new Date(filterDateFrom));
@@ -455,114 +486,116 @@ export default function Documents() {
         onCancel={() => setConfirmDelete(null)}
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-           <div className="flex items-center gap-3">
-             <div className="p-2 bg-primary/10 rounded-xl">
-               <FileText size={24} className="text-primary"/>
+      <div className="sticky top-0 z-30 space-y-4 bg-gray-50/95 pb-4 backdrop-blur-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+             <div className="flex items-center gap-3">
+               <div className="p-2 bg-primary/10 rounded-xl">
+                 <FileText size={24} className="text-primary"/>
+               </div>
+               <div>
+                 <h1 className="section-title text-xl md:text-2xl flex items-center gap-3">
+                   Document Center
+                   <span className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500 text-sm font-bold border border-gray-200">{filteredDocs.length}</span>
+                 </h1>
+                 <p className="section-subtitle mt-0.5 text-sm text-gray-500">Centralized storage for all records and attachments</p>
+               </div>
              </div>
-             <div>
-               <h1 className="section-title text-xl md:text-2xl flex items-center gap-3">
-                 Document Center
-                 <span className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-500 text-sm font-bold border border-gray-200">{filteredDocs.length}</span>
-               </h1>
-               <p className="section-subtitle mt-0.5 text-sm text-gray-500">Centralized storage for all records and attachments</p>
-             </div>
-           </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            {canExport && (
+              <button
+                onClick={handleExportAttachmentsPDF}
+                className="btn-export-pdf flex items-center justify-center gap-2 px-4 h-11 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95"
+              >
+                <FileText size={16} /> Attachments PDF
+              </button>
+            )}
+            {canCreate && (
+              <button onClick={() => setModalOpen(true)} className="btn-primary flex items-center justify-center gap-2 shadow-lg shadow-primary/20 h-11">
+                 <Upload size={16} /> Upload Document
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          {canExport && (
-            <button
-              onClick={handleExportAttachmentsPDF}
-              className="btn-export-pdf flex items-center justify-center gap-2 px-4 h-11 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95"
-            >
-              <FileText size={16} /> Attachments PDF
-            </button>
-          )}
-          {canCreate && (
-            <button onClick={() => setModalOpen(true)} className="btn-primary flex items-center justify-center gap-2 shadow-lg shadow-primary/20 h-11">
-               <Upload size={16} /> Upload Document
-            </button>
-          )}
-        </div>
-      </div>
 
-      {/* Filter Bar - Two Row Design */}
-      <div className="bg-white/60 backdrop-blur-md rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        {/* Row 1: Search + Date + Clear */}
-        <div className="flex items-center gap-3 p-3 border-b border-gray-100">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by title or filename..."
-              className="w-full pl-9 pr-4 py-2 bg-white border border-gray-100 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-medium text-gray-700 shadow-inner placeholder:text-gray-400"
-            />
+        {/* Filter Bar - Two Row Design */}
+        <div className="bg-white/60 backdrop-blur-md rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Row 1: Search + Date + Clear */}
+          <div className="flex items-center gap-3 p-3 border-b border-gray-100">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by title or filename..."
+                className="w-full pl-9 pr-4 py-2 bg-white border border-gray-100 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-medium text-gray-700 shadow-inner placeholder:text-gray-400"
+              />
+            </div>
+            <div className="relative w-36 shrink-0">
+              <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="date"
+                value={filterDateFrom}
+                onChange={e => setFilterDateFrom(e.target.value)}
+                className="w-full pl-9 pr-2 py-2 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-inner"
+              />
+            </div>
+            <div className="relative w-36 shrink-0">
+              <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="date"
+                value={filterDateTo}
+                onChange={e => setFilterDateTo(e.target.value)}
+                className="w-full pl-9 pr-2 py-2 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-inner"
+              />
+            </div>
+            {(filterCategory !== 'All' || filterEmployee !== 'All' || filterBranch !== 'All' || filterDateFrom || filterDateTo || search) && (
+              <button
+                onClick={() => { setSearch(''); setFilterCategory('All'); setFilterEmployee('All'); setFilterBranch('All'); setFilterDateFrom(''); setFilterDateTo(''); }}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-500 hover:bg-rose-100 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-rose-100"
+              >
+                <X size={11} /> Clear
+              </button>
+            )}
           </div>
-          <div className="relative w-36 shrink-0">
-            <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            <input
-              type="date"
-              value={filterDateFrom}
-              onChange={e => setFilterDateFrom(e.target.value)}
-              className="w-full pl-9 pr-2 py-2 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-inner"
-            />
-          </div>
-          <div className="relative w-36 shrink-0">
-            <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            <input
-              type="date"
-              value={filterDateTo}
-              onChange={e => setFilterDateTo(e.target.value)}
-              className="w-full pl-9 pr-2 py-2 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-inner"
-            />
-          </div>
-          {(filterCategory !== 'All' || filterEmployee !== 'All' || filterBranch !== 'All' || filterDateFrom || filterDateTo || search) && (
-            <button
-              onClick={() => { setSearch(''); setFilterCategory('All'); setFilterEmployee('All'); setFilterBranch('All'); setFilterDateFrom(''); setFilterDateTo(''); }}
-              className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-500 hover:bg-rose-100 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-rose-100"
-            >
-              <X size={11} /> Clear
+          {/* Row 2: Dropdowns + Manage */}
+          <div className="flex flex-wrap items-center gap-2 p-3">
+            <div className="flex items-center gap-1.5 bg-white border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner min-w-[140px] flex-1 md:flex-none">
+              <Tag size={12} className="text-gray-400 shrink-0" />
+              <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
+                className="flex-1 bg-transparent text-[11px] font-black text-gray-600 appearance-none outline-none cursor-pointer">
+                <option value="All">All Categories</option>
+                {allCategories.map(c => <option key={c} value={c}>{getCategoryLabel(c)}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-1.5 bg-white border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner min-w-[150px] flex-1 md:flex-none">
+              <User size={12} className="text-gray-400 shrink-0" />
+              <select value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)}
+                className="flex-1 bg-transparent text-[11px] font-black text-gray-600 appearance-none outline-none cursor-pointer">
+                <option value="All">All Employees</option>
+                {employees.map(emp => (
+                  <option key={emp.id} value={String(emp.id)}>
+                    {emp.firstName}{emp.lastName && emp.lastName.trim() && emp.lastName !== '.' ? ' ' + emp.lastName : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-1.5 bg-white border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner min-w-[130px] flex-1 md:flex-none">
+              <Bell size={12} className="text-gray-400 shrink-0" />
+              <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
+                className="flex-1 bg-transparent text-[11px] font-black text-gray-600 appearance-none outline-none cursor-pointer">
+                <option value="All">All Branches</option>
+                <option value="Manama Branch">Manama Branch</option>
+                <option value="Tubli Branch">Tubli Branch</option>
+              </select>
+            </div>
+            <button onClick={() => setShowCatManager(true)}
+              className="ml-auto flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gray-50 text-gray-500 hover:text-primary hover:bg-primary/5 border border-gray-100 hover:border-primary/30 transition-all group text-[10px] font-black uppercase tracking-widest shrink-0">
+              <Settings size={13} className="group-hover:rotate-90 transition-transform duration-500" />
+              Manage Categories
             </button>
-          )}
-        </div>
-        {/* Row 2: Dropdowns + Manage */}
-        <div className="flex flex-wrap items-center gap-2 p-3">
-          <div className="flex items-center gap-1.5 bg-white border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner min-w-[140px] flex-1 md:flex-none">
-            <Tag size={12} className="text-gray-400 shrink-0" />
-            <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
-              className="flex-1 bg-transparent text-[11px] font-black text-gray-600 appearance-none outline-none cursor-pointer">
-              <option value="All">All Categories</option>
-              {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
           </div>
-          <div className="flex items-center gap-1.5 bg-white border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner min-w-[150px] flex-1 md:flex-none">
-            <User size={12} className="text-gray-400 shrink-0" />
-            <select value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)}
-              className="flex-1 bg-transparent text-[11px] font-black text-gray-600 appearance-none outline-none cursor-pointer">
-              <option value="All">All Employees</option>
-              {employees.map(emp => (
-                <option key={emp.id} value={String(emp.id)}>
-                  {emp.firstName}{emp.lastName && emp.lastName.trim() && emp.lastName !== '.' ? ' ' + emp.lastName : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-1.5 bg-white border border-gray-100 rounded-xl px-3 py-1.5 shadow-inner min-w-[130px] flex-1 md:flex-none">
-            <Bell size={12} className="text-gray-400 shrink-0" />
-            <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
-              className="flex-1 bg-transparent text-[11px] font-black text-gray-600 appearance-none outline-none cursor-pointer">
-              <option value="All">All Branches</option>
-              <option value="Manama Branch">Manama Branch</option>
-              <option value="Tubli Branch">Tubli Branch</option>
-            </select>
-          </div>
-          <button onClick={() => setShowCatManager(true)}
-            className="ml-auto flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gray-50 text-gray-500 hover:text-primary hover:bg-primary/5 border border-gray-100 hover:border-primary/30 transition-all group text-[10px] font-black uppercase tracking-widest shrink-0">
-            <Settings size={13} className="group-hover:rotate-90 transition-transform duration-500" />
-            Manage Categories
-          </button>
         </div>
       </div>
 
@@ -582,7 +615,7 @@ export default function Documents() {
       ) : (
         <>
           <div className="bg-white rounded-[2rem] shadow-xl shadow-gray-200/20 border border-gray-100 overflow-hidden hidden md:block">
-             <div className="table-container">
+             <div className="table-container overflow-auto max-h-[calc(100vh-360px)]">
                <table className="table w-full">
                  <thead>
                    <tr className="bg-gray-50/50">
@@ -608,10 +641,10 @@ export default function Documents() {
                          </div>
                        </td>
                        <td className="px-6 py-4">
-                         <span className="px-2.5 py-1 rounded-md bg-gray-100 text-gray-500 text-[10px] font-black uppercase tracking-wider border border-gray-200">{doc.category}</span>
+                         <span className="px-2.5 py-1 rounded-md bg-gray-100 text-gray-500 text-[10px] font-black uppercase tracking-wider border border-gray-200">{getCategoryLabel(doc.category)}</span>
                          {doc.relatedId && (
-                           <button onClick={() => handleRelatedClick(doc.category, doc.relatedId)} className="block mt-1.5 hover:opacity-80 transition-opacity">
-                             <p className="text-[10px] text-primary font-bold flex items-center gap-1 hover:underline"><span className="w-1 h-1 rounded-full bg-primary inline-block"/> {doc.relatedId}</p>
+                           <button onClick={() => handleRelatedClick(doc.relatedType || doc.category, doc.relatedId)} className="block mt-1.5 hover:opacity-80 transition-opacity">
+                             <p className="text-[10px] text-primary font-bold flex items-center gap-1 hover:underline"><span className="w-1 h-1 rounded-full bg-primary inline-block"/> {doc.relatedType || doc.category}: {doc.relatedLabel || doc.relatedId}</p>
                            </button>
                          )}
                        </td>
@@ -656,10 +689,10 @@ export default function Documents() {
                       <p className="text-sm font-bold text-gray-800 tracking-tight truncate cursor-pointer hover:text-primary transition-colors" onClick={() => setPreviewFile(doc.fileUrl)}>{doc.title}</p>
                       <p className="text-[10px] text-gray-400 font-medium truncate">{doc.fileName}</p>
                       <div className="flex items-center gap-2 mt-1.5">
-                        <span className="inline-block px-2 py-0.5 rounded border border-gray-200 bg-gray-50 text-gray-500 text-[9px] font-black uppercase tracking-wider">{doc.category}</span>
+                        <span className="inline-block px-2 py-0.5 rounded border border-gray-200 bg-gray-50 text-gray-500 text-[9px] font-black uppercase tracking-wider">{getCategoryLabel(doc.category)}</span>
                         {doc.relatedId && (
-                          <button onClick={() => handleRelatedClick(doc.category, doc.relatedId)} className="text-[9px] text-primary font-bold hover:underline">
-                            {doc.relatedId}
+                          <button onClick={() => handleRelatedClick(doc.relatedType || doc.category, doc.relatedId)} className="text-[9px] text-primary font-bold hover:underline">
+                            {doc.relatedType || doc.category}: {doc.relatedLabel || doc.relatedId}
                           </button>
                         )}
                       </div>

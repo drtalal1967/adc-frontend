@@ -356,10 +356,16 @@ export default function Schedule() {
   const canCreate = checkPermission('schedule', 'create');
   const canUpdate = checkPermission('schedule', 'update');
   const canDelete = checkPermission('schedule', 'delete');
+  const canManagePublicHolidays = String(user?.role || '').toLowerCase() === 'admin' || checkPermission('leave_balance', 'update');
+  const canDeletePublicHolidays = String(user?.role || '').toLowerCase() === 'admin' || checkPermission('leave_balance', 'delete');
+  const canEditPublicHolidays = canManagePublicHolidays || canDeletePublicHolidays;
   const [schedules, setSchedules] = useState([]);
   const [hoursSchedules, setHoursSchedules] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [leaves, setLeaves] = useState([]);
+  const [publicHolidays, setPublicHolidays] = useState([]);
+  const [holidayForm, setHolidayForm] = useState({ name: '', date: '', endDate: '', notes: '' });
+  const [editingHolidayId, setEditingHolidayId] = useState(null);
   const [modal, setModal] = useState(false);
   const [editSchedule, setEditSchedule] = useState(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -396,13 +402,15 @@ export default function Schedule() {
       const summaryStart = summaryWeekRange.start < summaryMonthRange.start ? summaryWeekRange.start : summaryMonthRange.start;
       const summaryEnd = summaryWeekRange.end > summaryMonthRange.end ? summaryWeekRange.end : summaryMonthRange.end;
 
-      const [schedRes, summarySchedRes] = await Promise.all([
+      const [schedRes, summarySchedRes, holidayRes] = await Promise.all([
         API.get('/schedules', { params: { start, end } }),
         API.get('/schedules', { params: { start: summaryStart, end: summaryEnd } }),
+        API.get('/public-holidays', { params: { year: new Date(selectedDate + 'T00:00:00').getFullYear() } }),
       ]);
       let fetchedSchedules = schedRes.data || [];
       let fetchedHoursSchedules = summarySchedRes.data || [];
       let fetchedLeaves = [];
+      setPublicHolidays(Array.isArray(holidayRes.data) ? holidayRes.data : []);
 
       try {
         const leaveRes = await API.get('/leave-requests');
@@ -530,9 +538,75 @@ export default function Schedule() {
     }
   };
 
+  const resetHolidayForm = () => {
+    setHolidayForm({ name: '', date: '', endDate: '', notes: '' });
+    setEditingHolidayId(null);
+  };
+
+  const handleEditHoliday = (holiday) => {
+    setEditingHolidayId(holiday.id);
+    setHolidayForm({
+      name: holiday.name || '',
+      date: toLocalDateKey(holiday.date),
+      endDate: toLocalDateKey(holiday.endDate || holiday.date),
+      notes: holiday.notes || '',
+    });
+  };
+
+  const handleSaveHoliday = async () => {
+    const payload = { ...holidayForm, endDate: holidayForm.endDate || holidayForm.date };
+    if (!payload.name.trim() || !payload.date) {
+      alert('Please enter the holiday name and start date.');
+      return;
+    }
+    if (payload.endDate && payload.endDate < payload.date) {
+      alert('The holiday end date cannot be before the start date.');
+      return;
+    }
+    try {
+      if (editingHolidayId) {
+        await API.put(`/public-holidays/${editingHolidayId}`, payload);
+      } else {
+        await API.post('/public-holidays', payload);
+      }
+      resetHolidayForm();
+      if (payload.date !== selectedDate) {
+        setSelectedDate(payload.date);
+      } else {
+        fetchData();
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to save public holiday');
+    }
+  };
+
+  const handleDeleteHoliday = async (id) => {
+    if (!window.confirm('Delete this public holiday?')) return;
+    try {
+      await API.delete(`/public-holidays/${id}`);
+      setPublicHolidays(prev => prev.filter(holiday => holiday.id !== id));
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete public holiday');
+    }
+  };
+
+  const formatHolidayRange = (holiday) => {
+    const start = formatDate(toLocalDateKey(holiday.date));
+    const end = formatDate(toLocalDateKey(holiday.endDate || holiday.date));
+    return start === end ? start : `${start} to ${end}`;
+  };
+
   const getScheduleEmployeeName = (schedule) => {
     const emp = employees.find(e => String(e.id) === String(schedule.employeeId)) || schedule.employee;
     return schedule.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : 'Unknown');
+  };
+
+  const isPublicHolidayDate = (dateStr) => {
+    return (Array.isArray(publicHolidays) ? publicHolidays : []).some(holiday => {
+      const start = toLocalDateKey(holiday.date);
+      const end = toLocalDateKey(holiday.endDate || holiday.date);
+      return dateStr >= start && dateStr <= end;
+    });
   };
 
   const handleSchedulePaste = async (targetDate) => {
@@ -546,6 +620,11 @@ export default function Schedule() {
 
     if (mode === 'move' && schedule.date === targetDate) {
       alert('This schedule is already on that date.');
+      return;
+    }
+
+    if (isPublicHolidayDate(targetDate)) {
+      alert('Cannot paste a schedule on a public holiday.');
       return;
     }
 
@@ -613,11 +692,48 @@ export default function Schedule() {
     .trim();
 
   const getScheduleBranch = (schedule) => {
+    if (schedule.isPublicHoliday) return '';
     const emp = employees.find(e => String(e.id) === String(schedule.employeeId));
     return schedule.branch || schedule.employee?.branch || emp?.branch || '';
   };
 
-  const filteredSchedules = schedules.filter(s => {
+  const currentViewRange = viewMode === 'day'
+    ? { start: selectedDate, end: selectedDate }
+    : viewMode === 'week'
+    ? getWeekRange(selectedDate)
+    : getMonthRange(selectedDate);
+
+  const publicHolidayEntries = (Array.isArray(publicHolidays) ? publicHolidays : []).flatMap(holiday => {
+    const entries = [];
+    const holidayStart = toLocalDateKey(holiday.date);
+    const holidayEnd = toLocalDateKey(holiday.endDate || holiday.date);
+    const first = holidayStart > currentViewRange.start ? holidayStart : currentViewRange.start;
+    const last = holidayEnd < currentViewRange.end ? holidayEnd : currentViewRange.end;
+
+    if (!first || !last || first > last) return entries;
+
+    const cursor = dateKeyToLocalDate(first);
+    const endDate = dateKeyToLocalDate(last);
+    while (!isNaN(cursor.getTime()) && !isNaN(endDate.getTime()) && cursor <= endDate) {
+      const dateStr = toLocalDateKey(cursor);
+      entries.push({
+        id: `holiday-${holiday.id}-${dateStr}`,
+        date: dateStr,
+        title: holiday.name || 'Public Holiday',
+        employeeName: holiday.name || 'Public Holiday',
+        status: 'Public Holiday',
+        notes: holiday.notes || '',
+        isPublicHoliday: true,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return entries;
+  });
+
+  const calendarSchedules = [...publicHolidayEntries, ...schedules];
+
+  const filteredSchedules = calendarSchedules.filter(s => {
+    if (s.isPublicHoliday) return true;
     const employeeMatch = selectedEmployee ? String(s.employeeId) === selectedEmployee : true;
     const branchMatch = selectedBranch ? normalizeBranch(getScheduleBranch(s)) === selectedBranch : true;
     return employeeMatch && branchMatch;
@@ -690,6 +806,16 @@ export default function Schedule() {
     acc[s.date].push(s);
     return acc;
   }, {});
+
+  Object.values(schedulesByDate).forEach(items => {
+    items.sort((a, b) => {
+      const holidayDiff = Number(b.isPublicHoliday) - Number(a.isPublicHoliday);
+      if (holidayDiff !== 0) return holidayDiff;
+      const leaveDiff = Number(a.status === 'On Leave') - Number(b.status === 'On Leave');
+      if (leaveDiff !== 0) return leaveDiff;
+      return String(a.startTime || '').localeCompare(String(b.startTime || ''));
+    });
+  });
 
   const getShiftLabel = (startTime) => {
     const hour = parseInt(startTime.split(':')[0]);
@@ -918,6 +1044,108 @@ return (
         </div>
       </div>
 
+      {(canManagePublicHolidays || canEditPublicHolidays) && (
+        <div className="card p-5 border-none shadow-sm bg-white overflow-hidden">
+          <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-5">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-500 flex items-center justify-center">
+                  <CalendarDays size={19} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-gray-800 tracking-tight">Public Holidays</h2>
+                  <p className="text-xs font-semibold text-gray-500 mt-0.5">
+                    Showing holidays for {new Date(selectedDate + 'T00:00:00').getFullYear()}. They appear on Work Schedule and are excluded from leave balance deduction.
+                  </p>
+                </div>
+              </div>
+              {(canManagePublicHolidays || editingHolidayId) && (
+              <div className="grid grid-cols-1 md:grid-cols-[1.1fr_0.75fr_0.75fr_1.2fr_auto] gap-3">
+                <input
+                  value={holidayForm.name}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Holiday name"
+                  className="h-11 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  type="date"
+                  value={holidayForm.date}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, date: e.target.value, endDate: prev.endDate || e.target.value }))}
+                  title="From"
+                  className="h-11 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  type="date"
+                  value={holidayForm.endDate}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, endDate: e.target.value }))}
+                  title="To"
+                  className="h-11 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  value={holidayForm.notes}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Notes (optional)"
+                  className="h-11 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveHoliday}
+                  className="h-11 px-5 rounded-2xl bg-[#F58220] hover:bg-[#D97706] text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20"
+                >
+                  {editingHolidayId ? <Check size={16} /> : <Plus size={16} />}
+                  {editingHolidayId ? 'Save' : 'Add'}
+                </button>
+              </div>
+              )}
+              {editingHolidayId && (
+                <button
+                  type="button"
+                  onClick={resetHolidayForm}
+                  className="mt-3 text-xs font-black text-gray-500 hover:text-gray-800 underline decoration-gray-300 underline-offset-4"
+                >
+                  Cancel editing
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {publicHolidays.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs font-bold text-gray-400 md:col-span-2 xl:col-span-3">No public holidays added for this year.</div>
+            ) : publicHolidays.map(holiday => (
+              <div key={holiday.id} className="rounded-2xl border border-gray-200 bg-gray-50 p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-gray-800 truncate">{holiday.name}</p>
+                  <p className="text-xs font-bold text-gray-600 mt-1">{formatHolidayRange(holiday)}</p>
+                  {holiday.notes && <p className="text-[11px] font-semibold text-gray-400 mt-1 truncate">{holiday.notes}</p>}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {canEditPublicHolidays && (
+                    <button
+                      type="button"
+                      onClick={() => handleEditHoliday(holiday)}
+                      className="w-9 h-9 rounded-xl bg-white text-gray-400 hover:text-blue-600 hover:bg-blue-50 flex items-center justify-center border border-gray-100 transition-all"
+                      title="Edit holiday"
+                    >
+                      <Edit2 size={15} />
+                    </button>
+                  )}
+                  {canDeletePublicHolidays && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteHoliday(holiday.id)}
+                      className="w-9 h-9 rounded-xl bg-white text-gray-400 hover:text-rose-500 hover:bg-rose-50 flex items-center justify-center border border-gray-100 transition-all"
+                      title="Delete holiday"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
         {/* Date sidebar */}
         <div className="card lg:col-span-1">
@@ -931,7 +1159,7 @@ return (
                 <CalendarDays size={14} />
                 {formatDate(d)}
                 <span className={`ml-auto text-xs rounded-full px-1.5 py-0.5 ${selectedDate === d ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                  {schedules.filter(s => s.date === d).length}
+                  {filteredSchedules.filter(s => s.date === d).length}
                 </span>
               </button>
             ))}
@@ -1024,24 +1252,25 @@ return (
                         <div className="flex flex-col gap-1 overflow-y-auto scrollbar-hide">
                           {daySchedules.map(s => {
                             const isLeave = s.status === 'On Leave';
+                            const isHoliday = s.status === 'Public Holiday';
                             const color = getEmployeeColor(s.employeeId, s.employee);
                             return (
   <div
   key={s.id}
-  className={`p-1.5 rounded-lg text-[9px] group relative overflow-hidden border-l-4 ${isLeave ? 'bg-rose-50 border-rose-500 ring-1 ring-rose-200' : `${color.bg} ${color.border} ring-1 ring-black/5`}`}
+  className={`p-1.5 rounded-lg text-[9px] group relative overflow-hidden border-l-4 ${isHoliday ? 'bg-gray-800 border-gray-950 ring-1 ring-gray-300' : isLeave ? 'bg-rose-50 border-rose-500 ring-1 ring-rose-200' : `${color.bg} ${color.border} ring-1 ring-black/5`}`}
 >
 <div className="flex items-start justify-between gap-1">
 <p
-  className={`font-semibold text-sm truncate leading-tight ${isLeave ? 'text-rose-900' : color.text}`}
+  className={`font-semibold text-sm truncate leading-tight ${isHoliday ? 'text-white' : isLeave ? 'text-rose-900' : color.text}`}
 >
-  {s.employeeName || (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown')}
+  {isHoliday ? (s.title || 'Public Holiday') : (s.employeeName || (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown'))}
 </p>
   {isLeave && <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0 shadow-sm" />}
 </div>
-                              <p className={`font-semibold opacity-90 text-[9px] ${isLeave ? 'text-rose-700' : color.muted}`}>
-  {isLeave ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime?.slice(0,5)} - ${s.endTime?.slice(0,5)}`}
+                              <p className={`font-semibold opacity-90 text-[9px] ${isHoliday ? 'text-gray-100' : isLeave ? 'text-rose-700' : color.muted}`}>
+  {isHoliday ? 'Public Holiday' : isLeave ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime?.slice(0,5)} - ${s.endTime?.slice(0,5)}`}
 </p>
-                              {!isLeave && !s.isLeaveOnly && (canCreate || canUpdate) && (
+                              {!isHoliday && !isLeave && !s.isLeaveOnly && (canCreate || canUpdate) && (
                                 <div className="mt-1 flex items-center gap-1">
                                   {canCreate && (
                                     <button
@@ -1065,7 +1294,7 @@ return (
                                   )}
                                 </div>
                               )}
-                              {!isLeave && <div className={`absolute right-0 top-0 bottom-0 w-1 ${color.bar} transform translate-x-full group-hover:translate-x-0 transition-transform`} />}
+                              {!isHoliday && !isLeave && <div className={`absolute right-0 top-0 bottom-0 w-1 ${color.bar} transform translate-x-full group-hover:translate-x-0 transition-transform`} />}
                             </div>
                           );
                           })}
@@ -1087,16 +1316,17 @@ return (
                 {filteredSchedules.map(s => {
                   const emp = employees.find(e => e.id === s.employeeId);
                   const isLeave = s.status === 'On Leave';
+                  const isHoliday = s.status === 'Public Holiday';
                   const color = getEmployeeColor(s.employeeId, s.employee || emp);
                   return (
-                    <div key={s.id} className={`card card-hover flex flex-col sm:flex-row sm:items-center gap-4 group border-l-4 ${isLeave ? 'border-rose-200 bg-rose-50/70 border-l-rose-500' : `${color.bg} ${color.border}`}`}>
+                    <div key={s.id} className={`card card-hover flex flex-col sm:flex-row sm:items-center gap-4 group border-l-4 ${isHoliday ? 'border-gray-950 bg-gray-800 text-white' : isLeave ? 'border-rose-200 bg-rose-50/70 border-l-rose-500' : `${color.bg} ${color.border}`}`}>
                       <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-soft ${isLeave ? 'bg-rose-500' : color.bar}`}>
-                          {(s.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : '?'))).split(' ').map(w => w[0]).join('').slice(0, 2)}
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-soft ${isHoliday ? 'bg-gray-950' : isLeave ? 'bg-rose-500' : color.bar}`}>
+                          {isHoliday ? 'PH' : (s.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : '?'))).split(' ').map(w => w[0]).join('').slice(0, 2)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className={`font-bold text-sm truncate ${isLeave ? 'text-rose-900' : color.text}`}>{s.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown'))}</p>
+                            <p className={`font-bold text-sm truncate ${isHoliday ? 'text-white' : isLeave ? 'text-rose-900' : color.text}`}>{isHoliday ? (s.title || 'Public Holiday') : (s.employeeName || (emp ? `${emp.firstName} ${emp.lastName}` : (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : 'Unknown')))}</p>
                             {viewMode !== 'day' && <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-bold rounded-lg">{formatDate(s.date)}</span>}
                           </div>
                           <p className="text-[11px] text-gray-500 font-medium">{emp?.jobTitle || s.employee?.jobTitle} • {s.branch}</p>
@@ -1105,16 +1335,16 @@ return (
                       <div className="flex items-center justify-between sm:justify-end gap-5 pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-50">
                         <div className="flex items-center gap-3">
                           <div className="flex flex-col items-end">
-                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{s.status === 'On Leave' ? 'Leave Status' : 'Working Hours'}</p>
-                            <div className="flex items-center gap-1.5 text-xs text-gray-700 font-bold">
-                              {isLeave ? <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-sm" /> : <Clock size={12} className="text-primary" />}
+                            <p className={`text-[9px] font-black uppercase tracking-widest ${isHoliday ? 'text-gray-300' : 'text-gray-400'}`}>{isHoliday ? 'Holiday' : s.status === 'On Leave' ? 'Leave Status' : 'Working Hours'}</p>
+                            <div className={`flex items-center gap-1.5 text-xs font-bold ${isHoliday ? 'text-white' : 'text-gray-700'}`}>
+                              {isHoliday ? <CalendarDays size={12} className="text-white" /> : isLeave ? <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-sm" /> : <Clock size={12} className="text-primary" />}
                               <span>
-  {s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime?.slice(0,5)} - ${s.endTime?.slice(0,5)}`}
+  {isHoliday ? 'Public Holiday' : s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime?.slice(0,5)} - ${s.endTime?.slice(0,5)}`}
 </span>
                             </div>
                           </div>
                         </div>
-                        {!s.isLeaveOnly && (
+                        {!isHoliday && !s.isLeaveOnly && (
                           <div className="flex items-center gap-2">
                             {canUpdate && (
                               <button onClick={() => setEditSchedule(s)} className="w-9 h-9 rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center border border-transparent hover:border-blue-100" title="Edit Schedule">

@@ -102,6 +102,18 @@ const getPaymentAttachmentLinks = (payments = []) => (
 
 const uniqueLinks = (links = []) => Array.from(new Set(links.filter(Boolean)));
 
+const getExpensePayments = (record = {}, paymentRows = []) => {
+  const recordId = Number(record.id);
+  return (Array.isArray(paymentRows) ? paymentRows : []).filter(payment => {
+    const paymentExpenseId = Number(
+      payment?.expenseId ||
+      payment?.originalData?.expenseId ||
+      payment?.originalData?.expense?.id ||
+      payment?.expense?.id
+    );
+    return recordId && paymentExpenseId === recordId;
+  });
+};
 const getExpensePaymentLinks = (record = {}, paymentRows = []) => {
   const recordId = Number(record.id);
   const linkedPayments = (Array.isArray(paymentRows) ? paymentRows : []).filter(payment => {
@@ -410,7 +422,7 @@ const PartnerLogo = ({ logoUrl, name, size = 'sm' }) => (
   </div>
 );
 
-function ExpenseModal({ item, onClose, onSave, onPreview, vendors = [], categories = [] }) {
+function ExpenseModal({ item, onClose, onSave, onPreview, vendors = [], categories = [], payments = [] }) {
   const initialData = {
     date: new Date().toISOString().split('T')[0],
     branch: 'Tubli Branch',
@@ -436,6 +448,11 @@ function ExpenseModal({ item, onClose, onSave, onPreview, vendors = [], categori
   });
 
   const [pendingFiles, setPendingFiles] = useState([]);
+  const attachmentPreviewFiles = useMemo(() => [
+    ...(Array.isArray(form.attachments) ? form.attachments : []),
+    ...pendingFiles
+  ], [form.attachments, pendingFiles]);
+  const relatedPayments = useMemo(() => item ? getExpensePayments(item, payments) : [], [item, payments]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -577,9 +594,9 @@ function ExpenseModal({ item, onClose, onSave, onPreview, vendors = [], categori
               </div>
                 <FileUpload 
                   label="Upload Bill or Receipt"
-                  value={pendingFiles}
+                  value={attachmentPreviewFiles}
                   multiple={true}
-                  onChange={setPendingFiles}
+                  onChange={(files) => setPendingFiles((Array.isArray(files) ? files : []).filter(file => file?.file))}
                   onPreview={onPreview}
                   accept="image/*,application/pdf"
                 />
@@ -626,6 +643,48 @@ function ExpenseModal({ item, onClose, onSave, onPreview, vendors = [], categori
             </div>
           </div>
  
+            {item && relatedPayments.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 border-l-4 border-emerald-500 pl-3">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Payment History ({relatedPayments.length})</h3>
+                </div>
+                <div className="grid gap-3">
+                  {relatedPayments.map(payment => {
+                    const docs = payment.originalData?.documents || payment.documents || [];
+                    return (
+                      <div key={payment.id} className="p-4 rounded-2xl border border-emerald-100 bg-emerald-50/40 space-y-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Payment #{payment.id}</p>
+                              {payment.referenceNumber && <span className="px-2 py-0.5 rounded-full bg-white border border-emerald-100 text-[9px] font-black text-orange-600 uppercase tracking-widest">Batch Payment</span>}
+                            </div>
+                            {payment.referenceNumber && <p className="text-[10px] font-bold text-gray-500 mt-1">Reference: {payment.referenceNumber}</p>}
+                          </div>
+                          <p className="text-sm font-black text-blue-900">BHD {formatBHD(payment.amount)}</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-bold text-gray-600">
+                          <span>Date: {payment.date || payment.paymentDate || payment.originalData?.paymentDate || '-'}</span>
+                          <span>Method: {payment.method || payment.paymentMethod || payment.originalData?.paymentMethod || 'Cash'}</span>
+                        </div>
+                        {docs.length > 0 && (
+                          <div className="flex flex-wrap gap-2 pt-2 border-t border-emerald-100/70">
+                            {docs.map((doc, i) => {
+                              const url = normalizeFileUrl(doc.fileUrl || doc.url || '');
+                              return (
+                                <button key={doc.id || i} type="button" onClick={() => onPreview(url)} className="px-3 py-2 rounded-xl bg-white border border-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100 transition-all flex items-center gap-2">
+                                  <FileText size={13} /> Pay File {i + 1}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           <div className="px-8 py-6 bg-gray-50 border-t border-gray-100 flex items-center gap-4 shrink-0 mt-auto">
             <button type="button" onClick={onClose} className="px-8 py-3.5 text-sm font-bold text-gray-400 hover:text-gray-600 transition-colors">Discard</button>
             <button type="submit" className="flex-1 py-4 bg-[#F58220] hover:bg-[#D97706] text-white font-bold rounded-2xl shadow-lg shadow-orange-500/20 transition-all active:scale-[0.98]">
@@ -638,7 +697,7 @@ function ExpenseModal({ item, onClose, onSave, onPreview, vendors = [], categori
   );
 }
 
-function ViewExpenseModal({ item, onClose, onPreview }) {
+function ViewExpenseModal({ item, onClose, onPreview, payments = [] }) {
   if (!item) return null;
   return (
     <div className="modal-overlay z-[100]" onClick={onClose}>
@@ -1293,7 +1352,7 @@ const selectedTotal = expenses
   };
   return (
     <div className="md:h-[calc(100vh-5.5rem)] md:overflow-hidden flex flex-col animate-fade-in">
-      {viewItem && <ViewExpenseModal item={viewItem} onClose={() => setViewItem(null)} onPreview={setPreviewFile} />}
+      {viewItem && <ViewExpenseModal item={viewItem} payments={paymentRows} onClose={() => setViewItem(null)} onPreview={setPreviewFile} />}
       {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
       {(modal === 'add' || editItem) && (
         <ExpenseModal 
@@ -1538,8 +1597,8 @@ const selectedTotal = expenses
       <div className="hidden md:block bg-white rounded-[2rem] overflow-hidden shadow-xl shadow-gray-200/20 border border-gray-100 h-full">
         <div className="table-container overflow-auto h-full">
           <table className="table">
-            <thead>
-              <tr className="bg-gray-50/50 border-b border-gray-100">
+            <thead className="sticky top-0 z-20 bg-gray-50 shadow-sm">
+              <tr className="bg-gray-50 border-b border-gray-100">
                 <th className="px-4 py-5 w-10">
                   <input 
                     type="checkbox" 

@@ -36,6 +36,7 @@ const EMPLOYEE_COLORS = [
 ];
 const DEFAULT_COLOR = { bg: 'bg-gray-100', border: 'border-gray-500', text: 'text-gray-900', badge: 'bg-gray-500' };
 const LEAVE_COLOR = { bg: 'bg-rose-50', border: 'border-rose-500', text: 'text-rose-900', badge: 'bg-rose-500' };
+const HOLIDAY_COLOR = { bg: 'bg-gray-800', border: 'border-gray-950', text: 'text-white', badge: 'bg-gray-950' };
 
 const PDF_COLORS = [
   { fill: [224, 242, 254], border: [2, 132, 199], text: [12, 74, 110] },
@@ -65,6 +66,7 @@ const PDF_COLORS = [
   { fill: [255, 247, 237], border: [154, 52, 18], text: [124, 45, 18] },
 ];
 const PDF_LEAVE_COLOR = { fill: [255, 241, 242], border: [244, 63, 94], text: [136, 19, 55] };
+const PDF_HOLIDAY_COLOR = { fill: [31, 41, 55], border: [17, 24, 39], text: [255, 255, 255] };
 
 const toLocalDateKey = (value) => {
   if (!value) return '';
@@ -96,19 +98,20 @@ function getColor(employeeId, visibleEmployees, fallbackName = '', scheduleEmplo
 }
 
 function ShiftChip({ shift, compact = false, employees }) {
-  const emp = employees.find(e => e.id === shift.employeeId);
-  const name = emp ? `${emp.firstName} ${emp.lastName}` : (shift.employeeName || shift.title || 'Unknown');
+  const isHoliday = shift.status === 'Public Holiday';
+  const emp = !isHoliday ? employees.find(e => e.id === shift.employeeId) : null;
+  const name = isHoliday ? (shift.title || 'Public Holiday') : (emp ? emp.firstName + ' ' + emp.lastName : (shift.employeeName || shift.title || 'Unknown'));
   const isLeave = shift.status === 'On Leave';
-  const c = isLeave ? LEAVE_COLOR : getColor(shift.employeeId, employees, name, shift.employee);
+  const c = isHoliday ? HOLIDAY_COLOR : (isLeave ? LEAVE_COLOR : getColor(shift.employeeId, employees, name, shift.employee));
   return (
-    <div className={`px-1.5 py-1 ${c.bg} border-l-2 ${c.border} rounded shadow-sm overflow-hidden ${isLeave ? 'ring-1 ring-rose-200' : ''}`}>
+    <div className={'px-1.5 py-1 ' + c.bg + ' border-l-2 ' + c.border + ' rounded shadow-sm overflow-hidden ' + (isLeave ? 'ring-1 ring-rose-200' : '') + ' ' + (isHoliday ? 'ring-1 ring-orange-200' : '')}>
       <div className="flex items-start justify-between gap-1">
-        <p className={`text-[10px] font-bold ${c.text} truncate`}>{name}</p>
+        <p className={'text-[10px] font-bold ' + c.text + ' truncate'}>{name}</p>
         {isLeave && <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0 shadow-sm" />}
       </div>
       {!compact && (
-        <p className={`text-[9px] font-medium opacity-70 ${c.text}`}>
-          {shift.status === 'On Leave' ? `${(shift.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${shift.startTime} - ${shift.endTime}`}
+        <p className={'text-[9px] font-medium opacity-70 ' + c.text}>
+          {isHoliday ? 'Public Holiday' : (shift.status === 'On Leave' ? (shift.leaveType || 'Leave').replace(/_/g, ' ') + ' Leave' : shift.startTime + ' - ' + shift.endTime)}
         </p>
       )}
     </div>
@@ -144,6 +147,8 @@ const isDoctorShift = (shift, employees = []) => {
 
 const sortScheduleEntries = (items = [], employees = []) => (
   [...items].sort((a, b) => {
+    const holidayDiff = Number(b.status === 'Public Holiday') - Number(a.status === 'Public Holiday');
+    if (holidayDiff !== 0) return holidayDiff;
     const leaveDiff = Number(a.status === 'On Leave') - Number(b.status === 'On Leave');
     if (leaveDiff !== 0) return leaveDiff;
     const timeDiff = toMinutes(a.startTime) - toMinutes(b.startTime);
@@ -167,6 +172,7 @@ export default function WorkSchedule() {
   const [employees, setEmployees] = useState([]);
   const [dbSchedules, setDbSchedules] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
+  const [publicHolidays, setPublicHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(null);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
@@ -216,18 +222,34 @@ export default function WorkSchedule() {
       }
 
       try {
-        const res = await API.get(`/schedules?start=${start}&end=${end}`);
-        setDbSchedules(res.data || []);
+        const [scheduleResult, leaveResult, holidayResult] = await Promise.allSettled([
+          API.get(`/schedules?start=${start}&end=${end}`),
+          API.get('/leave-requests'),
+          API.get('/public-holidays?start=' + start + '&end=' + end),
+        ]);
 
-        try {
-          const leaveRes = await API.get('/leave-requests');
-          setLeaveRequests(leaveRes.data || []);
-        } catch (leaveErr) {
-          console.warn('Could not fetch leave requests for schedule view:', leaveErr.message);
+        if (scheduleResult.status === 'fulfilled') {
+          setDbSchedules(scheduleResult.value.data || []);
+        } else {
+          console.error('Error fetching schedule data:', scheduleResult.reason);
+          setDbSchedules([]);
+        }
+
+        if (leaveResult.status === 'fulfilled') {
+          setLeaveRequests(leaveResult.value.data || []);
+        } else {
+          console.warn('Could not fetch leave requests for schedule view:', leaveResult.reason?.message || leaveResult.reason);
           setLeaveRequests([]);
         }
+
+        if (holidayResult.status === 'fulfilled') {
+          setPublicHolidays(Array.isArray(holidayResult.value.data) ? holidayResult.value.data : []);
+        } else {
+          console.warn('Could not fetch public holidays for schedule view:', holidayResult.reason?.message || holidayResult.reason);
+          setPublicHolidays([]);
+        }
       } catch (err) {
-        console.error('Error fetching schedule data:', err);
+        console.error('Error fetching work schedule data:', err);
       } finally {
         setLoading(false);
       }
@@ -327,8 +349,37 @@ export default function WorkSchedule() {
       }
     });
 
-    return [...mappedSchedules, ...leaveOnlyEntries];
-  }, [dbSchedules, leaveRequests, currentDate, view]);
+    const holidayEntries = [];
+    (Array.isArray(publicHolidays) ? publicHolidays : []).forEach(holiday => {
+      const start = toLocalDateKey(holiday.date);
+      const end = toLocalDateKey(holiday.endDate || holiday.date);
+      if (!start || !end) return;
+      const current = new Date(start + 'T00:00:00');
+      const last = new Date(end + 'T00:00:00');
+      while (current <= last) {
+        const dateStr = toDateString(current);
+        if (dateStr >= rangeStart && dateStr <= rangeEnd) {
+          holidayEntries.push({
+            id: 'holiday-' + holiday.id + '-' + dateStr,
+            employeeId: null,
+            date: dateStr,
+            startTime: '',
+            endTime: '',
+            title: holiday.name || 'Public Holiday',
+            start: new Date(dateStr + 'T00:00:00'),
+            end: new Date(dateStr + 'T23:59:59'),
+            branch: 'All Branches',
+            status: 'Public Holiday',
+            notes: holiday.notes || '',
+            isHoliday: true
+          });
+        }
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
+    return [...holidayEntries, ...mappedSchedules, ...leaveOnlyEntries];
+  }, [dbSchedules, leaveRequests, publicHolidays, currentDate, view]);
 
   const visibleEmployees = useMemo(() => {
     const byId = new Map();
@@ -413,15 +464,16 @@ export default function WorkSchedule() {
       .trim();
 
     return schedules.filter(s => {
+      const isHoliday = s.status === 'Public Holiday';
       const emp = visibleEmployees.find(e => e.id === s.employeeId);
-      const scheduleName = s.employeeName || (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : '');
+      const scheduleName = isHoliday ? (s.title || 'Public Holiday') : (s.employeeName || (s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : ''));
       const name = emp ? `${emp.firstName} ${emp.lastName}` : scheduleName;
-      const job = emp?.specialization || s.employee?.specialization || s.employee?.jobTitle || '';
-      const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || job.toLowerCase().includes(search.toLowerCase());
+      const job = isHoliday ? 'Public Holiday' : (emp?.specialization || s.employee?.specialization || s.employee?.jobTitle || '');
+      const matchesSearch = isHoliday || name.toLowerCase().includes(search.toLowerCase()) || job.toLowerCase().includes(search.toLowerCase());
       const scheduleBranch = s.branch || s.employee?.branch || emp?.branch || '';
-      const matchesBranch = branchFilter === 'All Branches' || normalizeBranch(scheduleBranch) === normalizeBranch(branchFilter);
-      const matchesStatus = statusFilter === 'All Status' || s.status === statusFilter;
-      const matchesEmployee = employeeFilter === 'All Employees' || s.employeeId === parseInt(employeeFilter);
+      const matchesBranch = isHoliday || branchFilter === 'All Branches' || normalizeBranch(scheduleBranch) === normalizeBranch(branchFilter);
+      const matchesStatus = isHoliday || statusFilter === 'All Status' || s.status === statusFilter;
+      const matchesEmployee = isHoliday || employeeFilter === 'All Employees' || s.employeeId === parseInt(employeeFilter);
       return matchesSearch && matchesBranch && matchesStatus && matchesEmployee;
     });
   }, [schedules, visibleEmployees, search, branchFilter, statusFilter, employeeFilter]);
@@ -524,6 +576,7 @@ export default function WorkSchedule() {
   };
 
   const getPdfColor = (shift) => {
+    if (shift.status === 'Public Holiday') return PDF_HOLIDAY_COLOR;
     if (shift.status === 'On Leave') return PDF_LEAVE_COLOR;
     const employee = shift.employee || visibleEmployees.find(e => String(e.id) === String(shift.employeeId));
     const savedIndex = EMPLOYEE_COLORS.findIndex(color => color.key === employee?.scheduleColor);
@@ -534,8 +587,9 @@ export default function WorkSchedule() {
   };
 
   const getShiftName = (shift) => {
+    if (shift.status === 'Public Holiday') return shift.title || 'Public Holiday';
     const emp = visibleEmployees.find(e => String(e.id) === String(shift.employeeId));
-    return emp ? `${emp.firstName} ${emp.lastName}` : (shift.employeeName || 'Unknown');
+    return emp ? emp.firstName + ' ' + emp.lastName : (shift.employeeName || 'Unknown');
   };
 
   const drawPdfHeader = (doc, title) => {
@@ -553,9 +607,11 @@ export default function WorkSchedule() {
   const drawShiftPill = (doc, shift, x, y, w, h) => {
     const c = getPdfColor(shift);
     const name = getShiftName(shift);
-    const detail = shift.status === 'On Leave'
-      ? `${(shift.leaveType || 'Leave').replace(/_/g, ' ')} Leave`
-      : `${shift.startTime || ''} - ${shift.endTime || ''}`;
+    const detail = shift.status === 'Public Holiday'
+      ? 'Public Holiday'
+      : (shift.status === 'On Leave'
+        ? `${(shift.leaveType || 'Leave').replace(/_/g, ' ')} Leave`
+        : `${shift.startTime || ''} - ${shift.endTime || ''}`);
     doc.setFillColor(...c.fill);
     doc.setDrawColor(...c.border);
     doc.roundedRect(x, y, w, h, 1.5, 1.5, 'FD');
@@ -569,6 +625,9 @@ export default function WorkSchedule() {
     doc.setFontSize(5.4);
     doc.text(detail.slice(0, 28), x + 2.8, y + 6.4, { maxWidth: w - 4 });
     if (shift.status === 'On Leave') {
+      doc.setFillColor(249, 115, 22);
+      doc.circle(x + w - 3, y + 3, 1.2, 'F');
+    } else if (shift.status === 'Public Holiday') {
       doc.setFillColor(249, 115, 22);
       doc.circle(x + w - 3, y + 3, 1.2, 'F');
     }
@@ -773,6 +832,7 @@ export default function WorkSchedule() {
             <option>All Status</option>
             <option>Active</option>
             <option>On Leave</option>
+              <option>Public Holiday</option>
           </select>
           <ChevronRight size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 rotate-90 pointer-events-none" />
         </div>
@@ -1003,10 +1063,11 @@ export default function WorkSchedule() {
                     <p className="text-[10px] text-gray-300 text-center mt-6 font-medium">No shifts</p>
                   )}
                   {dayShifts.map(s => {
+                    const isHoliday = s.status === 'Public Holiday';
                     const emp = visibleEmployees.find(e => e.id === s.employeeId);
-                    const name = emp ? `${emp.firstName} ${emp.lastName}` : (s.employeeName || 'Unknown');
+                    const name = isHoliday ? (s.title || 'Public Holiday') : (emp ? `${emp.firstName} ${emp.lastName}` : (s.employeeName || 'Unknown'));
                     const isLeave = s.status === 'On Leave';
-                    const c = isLeave ? LEAVE_COLOR : getColor(s.employeeId, visibleEmployees, name, s.employee || emp);
+                    const c = isHoliday ? HOLIDAY_COLOR : (isLeave ? LEAVE_COLOR : getColor(s.employeeId, visibleEmployees, name, s.employee || emp));
                     return (
                       <div key={s.id} className={`p-2 ${c.bg} border-l-2 ${c.border} rounded-lg shadow-sm ${isLeave ? 'ring-1 ring-rose-200' : ''}`}>
                         <div className="flex items-start justify-between gap-1">
@@ -1014,7 +1075,7 @@ export default function WorkSchedule() {
                           {isLeave && <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0 shadow-sm" />}
                         </div>
                         <p className={`text-[9px] font-medium opacity-60 ${c.text}`}>
-                          {s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`}
+                          {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`)}
                         </p>
                         <p className={`text-[9px] font-medium opacity-50 ${c.text} truncate`}>{s.branch}</p>
                       </div>
@@ -1055,10 +1116,11 @@ export default function WorkSchedule() {
                 </div>
               )}
               {dayShifts.map(s => {
+                const isHoliday = s.status === 'Public Holiday';
                 const emp = visibleEmployees.find(e => e.id === s.employeeId);
-                const name = emp ? `${emp.firstName} ${emp.lastName}` : (s.employeeName || 'Unknown');
+                const name = isHoliday ? (s.title || 'Public Holiday') : (emp ? `${emp.firstName} ${emp.lastName}` : (s.employeeName || 'Unknown'));
                 const isLeave = s.status === 'On Leave';
-                const c = isLeave ? LEAVE_COLOR : getColor(s.employeeId, visibleEmployees, name, s.employee || emp);
+                const c = isHoliday ? HOLIDAY_COLOR : (isLeave ? LEAVE_COLOR : getColor(s.employeeId, visibleEmployees, name, s.employee || emp));
                 return (
                   <div key={s.id} className={`flex items-center gap-5 p-5 ${c.bg} border-l-4 ${c.border} rounded-2xl shadow-sm ${isLeave ? 'ring-1 ring-rose-200' : ''}`}>
                     <div className={`w-10 h-10 rounded-xl ${c.badge} flex items-center justify-center text-white font-black text-sm shrink-0`}>
@@ -1075,15 +1137,15 @@ export default function WorkSchedule() {
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <div className={`flex items-center gap-1.5 text-xs font-bold ${c.text}`}>
-                        {s.status !== 'On Leave' && <Clock size={12} />}
-                        {s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`}
+                        {!['On Leave', 'Public Holiday'].includes(s.status) && <Clock size={12} />}
+                        {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`)}
                       </div>
                       <div className={`flex items-center gap-1.5 text-[10px] font-medium opacity-60 ${c.text}`}>
                         <MapPin size={10} />{s.branch}
                       </div>
                     </div>
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                      s.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'
+                      s.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : (s.status === 'Public Holiday' ? 'bg-gray-800 text-white' : 'bg-rose-100 text-rose-600')
                     }`}>{s.status}</span>
                   </div>
                 );
@@ -1112,10 +1174,11 @@ export default function WorkSchedule() {
               <p className="text-center text-sm text-gray-400 font-medium py-6">No shifts scheduled for this day.</p>
             )}
             {selectedDayShifts.map(s => {
+              const isHoliday = s.status === 'Public Holiday';
               const emp = visibleEmployees.find(e => e.id === s.employeeId);
-              const name = emp ? `${emp.firstName} ${emp.lastName}` : (s.employeeName || 'Unknown');
+              const name = isHoliday ? (s.title || 'Public Holiday') : (emp ? `${emp.firstName} ${emp.lastName}` : (s.employeeName || 'Unknown'));
               const isLeave = s.status === 'On Leave';
-              const c = isLeave ? LEAVE_COLOR : getColor(s.employeeId, visibleEmployees, name, s.employee || emp);
+              const c = isHoliday ? HOLIDAY_COLOR : (isLeave ? LEAVE_COLOR : getColor(s.employeeId, visibleEmployees, name, s.employee || emp));
               return (
                 <div key={s.id} className={`flex items-center gap-4 p-4 ${c.bg} border-l-4 ${c.border} rounded-xl shadow-sm ${isLeave ? 'ring-1 ring-rose-200' : ''}`}>
                   <div className={`w-9 h-9 rounded-xl ${c.badge} flex items-center justify-center text-white font-black text-sm shrink-0`}>
@@ -1131,11 +1194,11 @@ export default function WorkSchedule() {
                     </p>
                   </div>
                   <div className={`flex items-center gap-1.5 text-xs font-bold ${c.text}`}>
-                    {s.status !== 'On Leave' && <Clock size={12} />}
-                    {s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`}
+                    {!['On Leave', 'Public Holiday'].includes(s.status) && <Clock size={12} />}
+                    {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`)}
                   </div>
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
-                    s.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'
+                    s.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : (s.status === 'Public Holiday' ? 'bg-gray-800 text-white' : 'bg-rose-100 text-rose-600')
                   }`}>{s.status}</span>
                 </div>
               );

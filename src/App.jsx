@@ -57,6 +57,7 @@ function AccessDenied() {
 
 function ProtectedPage({ module, children }) {
   const { checkPermission } = useAuth();
+  if (module === 'settings') return children;
   return checkPermission(module, 'view') ? children : <AccessDenied />;
 }
 

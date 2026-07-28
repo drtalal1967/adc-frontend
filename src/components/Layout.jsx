@@ -104,18 +104,16 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
 
         {/* Bottom */}
         <div className="px-3 py-4 border-t border-white/10 space-y-3">
-          {checkPermission('settings', 'view') && (
-            <button
-              onClick={() => {
-                navigate('/settings');
-                if (window.innerWidth < 1024) onMobileClose();
-              }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[15px] font-medium text-blue-100/80 hover:bg-white/10 hover:text-white transition-all duration-200"
-            >
-              <Icon name="Settings" size={20} className="text-blue-200" />
-              <span className={`${collapsed ? 'lg:hidden' : 'block'}`}>Settings</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              navigate('/settings');
+              if (window.innerWidth < 1024) onMobileClose();
+            }}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[15px] font-medium text-blue-100/80 hover:bg-white/10 hover:text-white transition-all duration-200"
+          >
+            <Icon name="Settings" size={20} className="text-blue-200" />
+            <span className={`${collapsed ? 'lg:hidden' : 'block'}`}>Settings</span>
+          </button>
           <div className={`${collapsed ? 'lg:hidden' : 'block'} px-3 pt-2 text-[10px] leading-relaxed text-blue-100/60`}>
             <p>Created by Dr. Talal Al-Alawi and AI.</p>
             <p>Copyright 2026 Dr. Talal Al-Alawi Dental Center.</p>

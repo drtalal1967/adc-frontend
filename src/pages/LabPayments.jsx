@@ -41,6 +41,20 @@ function StatusBadge({ status }) {
   );
 }
 
+const getPaymentBatchGroupId = (p) => p?.batchGroupId || p?.originalData?.batchGroupId || '';
+const getPaymentReference = (p) => p?.referenceNumber || p?.originalData?.referenceNumber || '';
+const getPaymentDateTime = (p) => {
+  const raw = p?.originalData?.paymentDate || p?.paymentDate || p?.date || '';
+  const parsed = raw ? new Date(raw) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 16) : String(raw).slice(0, 16);
+};
+const getFallbackBatchKey = (p) => [
+  p?.type || p?.originalData?.paymentType || '',
+  p?.method || p?.originalData?.paymentMethod || '',
+  getPaymentDateTime(p),
+  p?.notes || p?.originalData?.notes || ''
+].join('|').toLowerCase();
+
 function AddPaymentModal({ onClose, onSave, labs, labCases }) {
   const [form, setForm] = useState({
     labId: '',
@@ -236,17 +250,57 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
   if (!payment) return null;
 
   const isPaid = payment.status === 'Paid' || payment.status === 'Completed';
+
+  const selectedBatchGroupId = getPaymentBatchGroupId(payment);
+  const selectedReference = getPaymentReference(payment);
+  const selectedFallbackKey = getFallbackBatchKey(payment);
+  const selectedLooksBatch = Boolean(selectedBatchGroupId || selectedReference) || /batch/i.test(payment.notes || payment.originalData?.notes || '');
   const relatedPayments = allPayments.filter(p => {
-    if (payment.referenceNumber && p.referenceNumber === payment.referenceNumber) return true;
+    const batchGroupId = getPaymentBatchGroupId(p);
+    const ref = getPaymentReference(p);
+    if (selectedBatchGroupId && batchGroupId === selectedBatchGroupId) return true;
+    if (!selectedBatchGroupId && selectedReference && ref === selectedReference) return true;
+    if (!selectedBatchGroupId && !selectedReference && selectedLooksBatch && getFallbackBatchKey(p) === selectedFallbackKey) return true;
     return p.id === payment.id;
   });
   const relatedTotal = relatedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
   const isBatch = relatedPayments.length > 1;
+  const normalizedDocs = relatedPayments
+    .flatMap(p => p.originalData?.documents || p.documents || [])
+    .map(doc => {
+      const fileUrl = doc.fileUrl && doc.fileUrl.startsWith('/uploads') ? `${BACKEND_URL}${doc.fileUrl}` : doc.fileUrl;
+      return { ...doc, fileUrl };
+    })
+    .filter(doc => doc.fileUrl)
+    .filter((doc, index, arr) => arr.findIndex(d => d.fileUrl === doc.fileUrl) === index);
+
+  const describeRecord = (record) => {
+    const isLab = record.type?.toLowerCase() === 'lab';
+    const linked = isLab ? record.originalData?.labCase : record.originalData?.expense;
+    if (isLab) {
+      return {
+        kind: 'Lab Case',
+        title: linked?.patientName || 'Lab Case',
+        primaryBadge: linked?.patientNumber ? `Patient No. ${linked.patientNumber}` : null,
+        code: linked?.caseNumber || record.invoiceNumber || null,
+        lineOne: [linked?.laboratory?.name || record.itemName, linked?.prosthesisType].filter(Boolean).join(' | '),
+        lineTwo: [linked?.toothNumbers ? `Teeth: ${linked.toothNumbers}` : null, linked?.status].filter(Boolean).join(' | '),
+      };
+    }
+
+    return {
+      kind: 'Expense',
+      title: linked?.vendor?.name || record.itemName || 'Expense',
+      primaryBadge: linked?.invoiceNumber ? `Invoice ${linked.invoiceNumber}` : null,
+      code: linked?.id ? `Expense #${linked.id}` : record.invoiceNumber || null,
+      lineOne: [linked?.category || linked?.vendorCategory, linked?.branch].filter(Boolean).join(' | '),
+      lineTwo: linked?.notes || record.notes || '',
+    };
+  };
 
   return (
     <div className="modal-overlay z-[100]" onClick={onClose}>
-      <div className="modal-content w-[95%] sm:max-w-2xl bg-white overflow-hidden max-h-[92vh] flex flex-col rounded-[2rem] shadow-2xl animate-scale-in" onClick={e => e.stopPropagation()}>
-        {/* Header */}
+      <div className="modal-content w-[95%] sm:max-w-3xl bg-white overflow-hidden max-h-[92vh] flex flex-col rounded-[2rem] shadow-2xl animate-scale-in" onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-header px-6 py-5 flex items-center justify-between text-white border-b border-white/10 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-soft">
@@ -254,7 +308,7 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
             </div>
             <div>
               <h2 className="font-bold text-lg leading-tight text-white">Payment Details</h2>
-              <p className="text-[10px] text-white/80 uppercase tracking-widest font-bold">Transaction Record</p>
+              <p className="text-[10px] text-white/80 uppercase tracking-widest font-bold">{isBatch ? 'Batch Transaction' : 'Single Transaction'}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-all text-white/70 hover:text-white">
@@ -263,15 +317,21 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-hide p-6 space-y-8">
-          {/* Summary Card */}
           <div className="bg-gray-50/50 p-6 rounded-[2rem] border border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-5">
+            <div className="flex items-center gap-5 min-w-0">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${isPaid ? 'bg-blue-900 text-white' : 'bg-emerald-100 text-emerald-600'}`}>
                 {payment.type?.toLowerCase() === 'lab' ? <FlaskConical size={24} /> : <Store size={24} />}
               </div>
-              <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{payment.type} Payment</p>
-                <h3 className="text-xl font-black text-gray-900 leading-tight">{payment.itemName}</h3>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{payment.type} Payment</p>
+                  <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${isBatch ? 'bg-orange-50 text-orange-600 border border-orange-100' : 'bg-blue-50 text-blue-900 border border-blue-100'}`}>
+                    {isBatch ? `${relatedPayments.length} Records` : '1 Record'}
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-gray-900 leading-tight truncate">{payment.itemName}</h3>
+                {selectedReference && <p className="text-[11px] font-bold text-gray-500 mt-1">Reference: {selectedReference}</p>}
+                {selectedBatchGroupId && <p className="text-[10px] font-bold text-orange-600 mt-1 uppercase tracking-wide">Batch ID: {selectedBatchGroupId}</p>}
               </div>
             </div>
             <div className="text-center sm:text-right">
@@ -281,40 +341,25 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Transaction Details */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 border-l-4 border-indigo-500 pl-3">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Transaction Info</h3>
               </div>
               <div className="space-y-4 bg-white p-2 rounded-2xl">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50/50">
-                  <div className="flex items-center gap-3 text-gray-500">
-                    <Hash size={14} />
-                    <span className="text-xs font-bold">Invoice Number</span>
+                {[
+                  ['Invoice Number', payment.invoiceNumber || 'N/A', Hash],
+                  ['Payment Date', payment.date, Calendar],
+                  ['Payment Method', payment.method || 'Cash', CreditCard],
+                  ['Batch Reference', selectedReference || selectedBatchGroupId || 'Single Payment', Hash],
+                ].map(([label, value, Icon]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50/50">
+                    <div className="flex items-center gap-3 text-gray-500 shrink-0">
+                      <Icon size={14} />
+                      <span className="text-xs font-bold">{label}</span>
+                    </div>
+                    <span className="text-xs font-black text-gray-900 text-right break-all">{value}</span>
                   </div>
-                  <span className="text-xs font-black text-gray-900">{payment.invoiceNumber || 'N/A'}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50/50">
-                  <div className="flex items-center gap-3 text-gray-500">
-                    <Calendar size={14} />
-                    <span className="text-xs font-bold">Payment Date</span>
-                  </div>
-                  <span className="text-xs font-black text-gray-900">{payment.date}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50/50">
-                  <div className="flex items-center gap-3 text-gray-500">
-                    <CreditCard size={14} />
-                    <span className="text-xs font-bold">Payment Method</span>
-                  </div>
-                  <span className="text-xs font-black text-gray-900">{payment.method || 'Cash'}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50/50">
-                  <div className="flex items-center gap-3 text-gray-500">
-                    <Hash size={14} />
-                    <span className="text-xs font-bold">Batch Reference</span>
-                  </div>
-                  <span className="text-xs font-black text-gray-900">{payment.referenceNumber || 'Single Payment'}</span>
-                </div>
+                ))}
                 <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50/50">
                   <div className="flex items-center gap-3 text-gray-500">
                     <Activity size={14} />
@@ -325,23 +370,23 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
               </div>
             </div>
 
-            {/* Additional Info */}
             <div className="space-y-4">
                <div className="flex items-center gap-2 border-l-4 border-amber-500 pl-3">
-                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Additional Data</h3>
+                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Linked Summary</h3>
                </div>
                <div className="space-y-4">
-                  {payment.type?.toLowerCase() === 'lab' && (
-                    <div className="p-4 bg-blue-50/30 rounded-2xl border border-blue-100/50">
-                      <p className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-2">Linked Cases</p>
-                      <div className="flex items-center gap-2">
-                         <div className="w-8 h-8 rounded-lg bg-blue-900 text-white flex items-center justify-center font-black text-sm italic">
-                            {relatedPayments.length}
-                         </div>
-                         <p className="text-xs font-bold text-gray-700">This payment covers {relatedPayments.length} lab case{relatedPayments.length === 1 ? '' : 's'}</p>
-                      </div>
+                  <div className="p-4 bg-blue-50/30 rounded-2xl border border-blue-100/50">
+                    <p className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-2">Records Covered</p>
+                    <div className="flex items-center gap-3">
+                       <div className="w-9 h-9 rounded-xl bg-blue-900 text-white flex items-center justify-center font-black text-sm">
+                          {relatedPayments.length}
+                       </div>
+                       <div>
+                         <p className="text-sm font-black text-gray-800">{isBatch ? 'Batch payment' : 'Single record payment'}</p>
+                         <p className="text-[11px] font-bold text-gray-500">Lab cases and expenses linked to this payment are listed below.</p>
+                       </div>
                     </div>
-                  )}
+                  </div>
                   <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl">
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Internal Notes</p>
                     <p className="text-xs font-medium text-gray-600 italic">
@@ -354,33 +399,31 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
 
           <div className="space-y-4">
             <div className="flex items-center gap-2 border-l-4 border-blue-900 pl-3">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                Records Paid {isBatch ? `(${relatedPayments.length})` : ''}
-              </h3>
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Records Paid ({relatedPayments.length})</h3>
             </div>
             <div className="grid gap-3">
               {relatedPayments.map((record) => {
-                const isLab = record.type?.toLowerCase() === 'lab';
-                const linked = isLab ? record.originalData?.labCase : record.originalData?.expense;
-                const title = isLab
-                  ? linked?.patientName || record.itemName || 'Lab Case'
-                  : linked?.title || linked?.invoiceNumber || record.itemName || 'Expense';
-                const subtitle = isLab
-                  ? [linked?.caseNumber, linked?.patientNumber, linked?.prosthesisType].filter(Boolean).join(' • ')
-                  : [linked?.invoiceNumber, linked?.category, linked?.branch].filter(Boolean).join(' • ');
-
+                const info = describeRecord(record);
+                const isLab = info.kind === 'Lab Case';
                 return (
-                  <div key={record.id} className="p-4 rounded-[1.5rem] border border-blue-100 bg-blue-50/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div key={record.id} className={`p-4 rounded-[1.5rem] border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${isLab ? 'border-blue-100 bg-blue-50/30' : 'border-orange-100 bg-orange-50/30'}`}>
                     <div className="flex items-center gap-3 min-w-0">
                       <PayeeLogo payment={record} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-black text-gray-900 truncate">{title}</p>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider truncate">{subtitle || record.itemName}</p>
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-black text-gray-900 truncate">{info.title}</p>
+                          {info.primaryBadge && <span className="px-2.5 py-1 rounded-full bg-white border border-gray-200 text-[10px] font-black text-blue-900 uppercase tracking-wider">{info.primaryBadge}</span>}
+                        </div>
+                        <p className="text-[11px] font-bold text-gray-500 truncate">{info.lineOne || info.code || record.itemName}</p>
+                        {info.lineTwo && <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider truncate">{info.lineTwo}</p>}
                       </div>
                     </div>
-                    <div className="text-left sm:text-right">
+                    <div className="text-left sm:text-right shrink-0">
                       <p className="text-sm font-black text-blue-900">BHD {formatBHD(record.amount)}</p>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">{isLab ? 'Lab Case' : 'Expense'}</p>
+                      <div className="flex sm:justify-end gap-2 mt-1">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">{info.kind}</span>
+                        {(getPaymentBatchGroupId(record) || getPaymentReference(record)) && <span className="text-[10px] font-black text-orange-600 uppercase">Batch</span>}
+                      </div>
                     </div>
                   </div>
                 );
@@ -388,45 +431,35 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
             </div>
           </div>
 
-          {/* Attachment Preview (if exists) */}
-          {payment.originalData?.documents?.length > 0 && (
+          {normalizedDocs.length > 0 && (
             <div className="space-y-4">
                <div className="flex items-center gap-2 border-l-4 border-primary pl-3">
-                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Attachments ({payment.originalData.documents.length})</h3>
+                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Payment Attachments ({normalizedDocs.length})</h3>
                </div>
                <div className="grid gap-3">
-                 {payment.originalData.documents.map((doc, idx) => {
-                   let fileUrl = doc.fileUrl;
-                   if (fileUrl && fileUrl.startsWith('/uploads')) {
-                     fileUrl = `${BACKEND_URL}${fileUrl}`;
-                   }
-                   return (
-                     <div key={idx} className="p-4 bg-white border border-gray-100 rounded-[1.5rem] flex items-center justify-between group hover:border-primary transition-all shadow-sm">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                            <FileText size={20} />
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-gray-800">{doc.title || `Document ${idx + 1}`}</p>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Receipt / Invoice Image</p>
-                          </div>
+                 {normalizedDocs.map((doc, idx) => (
+                   <div key={doc.id || doc.fileUrl || idx} className="p-4 bg-white border border-gray-100 rounded-[1.5rem] flex items-center justify-between gap-4 group hover:border-primary transition-all shadow-sm">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary group-hover:scale-110 transition-transform shrink-0">
+                          <FileText size={20} />
                         </div>
-                        <button 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (window.setLabPaymentsPreview) {
-                               window.setLabPaymentsPreview(fileUrl);
-                            } else {
-                               window.open(fileUrl, '_blank');
-                            }
-                          }}
-                          className="btn-primary py-2 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer"
-                        >
-                          View File
-                        </button>
-                     </div>
-                   );
-                 })}
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-gray-800 truncate">{doc.title || doc.fileName || `Payment File ${idx + 1}`}</p>
+                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Payment receipt / invoice attachment</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (window.setLabPaymentsPreview) window.setLabPaymentsPreview(doc.fileUrl);
+                          else window.open(doc.fileUrl, '_blank');
+                        }}
+                        className="btn-primary py-2 px-5 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer shrink-0"
+                      >
+                        View File
+                      </button>
+                   </div>
+                 ))}
                </div>
             </div>
           )}
@@ -439,6 +472,7 @@ function ViewPaymentModal({ payment, onClose, allPayments = [] }) {
     </div>
   );
 }
+
 
 export default function LabPayments() {
   const { checkPermission } = useAuth();
@@ -848,8 +882,8 @@ export default function LabPayments() {
         </div>
         <div className="overflow-x-auto overflow-y-auto max-h-[60vh] scrollbar-hide">
           <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50/50">
+            <thead className="sticky top-0 z-20 bg-gray-50 shadow-sm">
+              <tr className="bg-gray-50">
                 <th className="px-6 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Payment ID</th>
                 <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Date</th>
                 <th className="px-4 py-4 text-[11px] font-black text-gray-600 uppercase tracking-widest border-b border-gray-100">Type & Item</th>

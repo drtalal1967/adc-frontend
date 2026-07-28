@@ -27,6 +27,7 @@ function CreateReminderModal({ onClose, onSave, initialData, employees = [], cat
         method: initialData.method || 'Both',
         attachment: fullUrl,
         fileName: url ? url.split('/').pop() : '',
+        removeAttachment: false,
         description: initialData.description || ''
       };
     }
@@ -40,6 +41,7 @@ function CreateReminderModal({ onClose, onSave, initialData, employees = [], cat
       method: 'Both',
       attachment: null,
       fileName: '',
+      removeAttachment: false,
       description: ''
     };
   });
@@ -65,6 +67,8 @@ function CreateReminderModal({ onClose, onSave, initialData, employees = [], cat
     }
     if (fileInputRef.current?.files[0]) {
       formData.append('file', fileInputRef.current.files[0]);
+    } else if (form.removeAttachment) {
+      formData.append('removeAttachment', 'true');
     }
 
     try {
@@ -84,8 +88,15 @@ function CreateReminderModal({ onClose, onSave, initialData, employees = [], cat
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      setForm(prev => ({ ...prev, attachment: URL.createObjectURL(file), fileName: file.name }));
+      setForm(prev => ({ ...prev, attachment: URL.createObjectURL(file), fileName: file.name, removeAttachment: false }));
     }
+  };
+
+  const handleRemoveAttachment = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    setForm(prev => ({ ...prev, attachment: null, fileName: '', removeAttachment: true }));
   };
 
   return (
@@ -237,7 +248,7 @@ function CreateReminderModal({ onClose, onSave, initialData, employees = [], cat
                 </div>
                 <button 
                   type="button"
-                  onClick={() => setForm(prev => ({ ...prev, attachment: null, fileName: '' }))}
+                  onClick={handleRemoveAttachment}
                   className="p-1.5 hover:bg-rose-100 hover:text-rose-600 rounded-lg text-gray-400 transition-colors"
                   title="Remove attachment"
                 >
@@ -495,81 +506,83 @@ export default function Reminders() {
 
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl mx-auto pb-10">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="section-title text-xl md:text-2xl flex items-center gap-3">
-             Reminders & System Alerts
-          </h1>
-          <p className="section-subtitle text-xs md:text-sm">Stay updated on critical license expiries and operational tasks</p>
+      <div className="sticky top-0 z-30 space-y-4 bg-gray-50/95 pb-4 backdrop-blur-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="section-title text-xl md:text-2xl flex items-center gap-3">
+               Reminders & System Alerts
+            </h1>
+            <p className="section-subtitle text-xs md:text-sm">Stay updated on critical license expires and operational tasks</p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+            {canCreate && (
+              <button 
+                onClick={() => setModal(true)}
+                className="btn-outline w-full sm:w-auto justify-center py-2.5 text-sm transition-all hover:scale-105 active:scale-95"
+              >
+                <Plus size={16} /> Add Reminder
+              </button>
+            )}
+            {reminders.length > 0 && canDelete && (
+              <button 
+                onClick={markAllRead}
+                className="btn-primary w-full sm:w-auto justify-center py-2.5 text-sm shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95"
+              >
+                <CheckCircle2 size={16} /> Mark All as Read
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-          {canCreate && (
-            <button 
-              onClick={() => setModal(true)}
-              className="btn-outline w-full sm:w-auto justify-center py-2.5 text-sm transition-all hover:scale-105 active:scale-95"
-            >
-              <Plus size={16} /> Add Reminder
-            </button>
-          )}
-          {reminders.length > 0 && canDelete && (
-            <button 
-              onClick={markAllRead}
-              className="btn-primary w-full sm:w-auto justify-center py-2.5 text-sm shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95"
-            >
-              <CheckCircle2 size={16} /> Mark All as Read
-            </button>
-          )}
-        </div>
-      </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-gray-100 shadow-sm">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          <div className="relative">
-            <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <select value={filterType} onChange={e => setFilterType(e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-100 rounded-xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm uppercase tracking-wider">
-              <option value="All">All Types</option>
-              {allReminderTypes.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+        {/* Filter Bar */}
+        <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-gray-100 shadow-sm">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="relative">
+              <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <select value={filterType} onChange={e => setFilterType(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-100 rounded-xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm uppercase tracking-wider">
+                <option value="All">All Types</option>
+                {allReminderTypes.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="relative">
+              <User size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <select value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-100 rounded-xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm">
+                <option value="All">All Employees</option>
+                <option value="general">General (No Employee)</option>
+                {employees.map(emp => <option key={emp.id} value={String(emp.id)}>{emp.firstName}{emp.lastName && emp.lastName.trim() && emp.lastName !== '.' ? ' ' + emp.lastName : ''}</option>)}
+              </select>
+            </div>
+            <div className="relative">
+              <Bell size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-100 rounded-xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm uppercase tracking-wider">
+                <option value="All">All Branches</option>
+                {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div className="relative">
+              <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                className="w-full pl-9 pr-2 py-2.5 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm" />
+            </div>
+            <div className="relative">
+              <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                className="w-full pl-9 pr-2 py-2.5 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm" />
+            </div>
           </div>
-          <div className="relative">
-            <User size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <select value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-100 rounded-xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm">
-              <option value="All">All Employees</option>
-              <option value="general">General (No Employee)</option>
-              {employees.map(emp => <option key={emp.id} value={String(emp.id)}>{emp.firstName}{emp.lastName && emp.lastName.trim() && emp.lastName !== '.' ? ' ' + emp.lastName : ''}</option>)}
-            </select>
-          </div>
-          <div className="relative">
-            <Bell size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-100 rounded-xl text-[11px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm uppercase tracking-wider">
-              <option value="All">All Branches</option>
-              {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
-          </div>
-          <div className="relative">
-            <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
-              className="w-full pl-9 pr-2 py-2.5 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm" />
-          </div>
-          <div className="relative">
-            <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
-              className="w-full pl-9 pr-2 py-2.5 bg-white border border-gray-100 rounded-xl text-[10px] font-black text-gray-600 appearance-none focus:ring-2 focus:ring-primary/20 shadow-sm" />
-          </div>
+          {(filterType !== 'All' || filterEmployee !== 'All' || filterBranch !== 'All' || filterDateFrom || filterDateTo) && (
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{filteredReminders.length} of {reminders.length} reminders shown</p>
+              <button onClick={() => { setFilterType('All'); setFilterEmployee('All'); setFilterBranch('All'); setFilterDateFrom(''); setFilterDateTo(''); }}
+                className="text-[10px] font-black text-rose-500 hover:underline uppercase tracking-widest flex items-center gap-1">
+                <X size={10} /> Clear Filters
+              </button>
+            </div>
+          )}
         </div>
-        {(filterType !== 'All' || filterEmployee !== 'All' || filterBranch !== 'All' || filterDateFrom || filterDateTo) && (
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{filteredReminders.length} of {reminders.length} reminders shown</p>
-            <button onClick={() => { setFilterType('All'); setFilterEmployee('All'); setFilterBranch('All'); setFilterDateFrom(''); setFilterDateTo(''); }}
-              className="text-[10px] font-black text-rose-500 hover:underline uppercase tracking-widest flex items-center gap-1">
-              <X size={10} /> Clear Filters
-            </button>
-          </div>
-        )}
       </div>
         {modal && canCreate && (
           <CreateReminderModal 
@@ -598,7 +611,7 @@ export default function Reminders() {
         />
       )}
 
-      <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-4 overflow-auto max-h-[calc(100vh-330px)] pr-1">
         {filteredReminders.length === 0 ? (
           <div className="card py-16 flex flex-col items-center justify-center text-center space-y-4 border-2 border-dashed border-gray-100">
             <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">

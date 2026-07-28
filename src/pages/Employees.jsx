@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { BRANCHES } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Search, Filter, Download, Eye, Edit2, Trash2, CheckCircle, User, Activity, MapPin, Hash, Phone, Mail, Clock, Calendar, X, AlertCircle, Users, AlertTriangle, Upload, ChevronDown, FileText, FileSpreadsheet, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, Download, Eye, Edit2, Trash2, CheckCircle, User, Activity, MapPin, Hash, Phone, Mail, Clock, Calendar, X, AlertCircle, Users, AlertTriangle, Upload, ChevronDown, FileText, FileSpreadsheet, Image as ImageIcon, Loader2, KeyRound } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
 import { exportToCSV } from '../utils/exportUtils';
 import FileUpload from '../components/FileUpload';
@@ -81,7 +81,7 @@ const SCHEDULE_COLORS = [
 function EmployeeModal({ item, onClose, onSave }) {
   const [form, setForm] = useState(item || {
     name: '', idNumber: '', jobTitle: '', licenseExpiry: '', visaExpiry: '', workPermitExpiry: '', startDate: '', endDate: '', role: '',
-    phone: '', email: '', password: '', documents: [], image: null, scheduleColor: ''
+    phone: '', email: '', password: '', documents: [], image: null, scheduleColor: '', employmentType: 'FULL_TIME'
   });
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState(null); // raw File object for upload
@@ -284,6 +284,20 @@ function EmployeeModal({ item, onClose, onSave }) {
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
+                  <Clock size={13} className="text-primary" /> Employment Type
+                </label>
+                <select value={form.employmentType || 'FULL_TIME'} onChange={e => update('employmentType', e.target.value)} className="select w-full bg-gray-50/50">
+                  <option value="FULL_TIME">Full Time</option>
+                  <option value="PART_TIME">Part Time</option>
+                </select>
+                {(form.employmentType || 'FULL_TIME') === 'PART_TIME' && (
+                  <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                    Leave requests and automatic leave balances are disabled for part-time employees.
+                  </p>
+                )}
+              </div>
               <div className="md:col-span-2 space-y-2">
                 <label className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
                   <Activity size={13} className="text-primary" /> Schedule Color
@@ -444,6 +458,9 @@ function ViewEmployeeModal({ item, onClose, onPreview }) {
                 <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${ROLE_COLORS[item.role] || 'bg-gray-100 text-gray-600'}`}>
                   {item.role}
                 </span>
+                <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm ${item.employmentType === 'PART_TIME' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {item.employmentType === 'PART_TIME' ? 'Part Time' : 'Full Time'}
+                </span>
                 <span className="px-4 py-1 rounded-full bg-white text-gray-500 text-[10px] font-black border border-gray-100 uppercase tracking-widest shadow-sm">
                   ID: {item.idNumber}
                 </span>
@@ -583,7 +600,7 @@ function ViewEmployeeModal({ item, onClose, onPreview }) {
 }
 
 export default function Employees() {
-  const { checkPermission } = useAuth();
+  const { user, checkPermission } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -597,7 +614,11 @@ export default function Employees() {
   const [previewFile, setPreviewFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [showImportSuccess, setShowImportSuccess] = useState(false);
+  const [resetItem, setResetItem] = useState(null);
+  const [resetPassword, setResetPassword] = useState('Dental@123');
+  const [resettingPassword, setResettingPassword] = useState(false);
   const fileInputRef = useRef(null);
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     fetchEmployees();
@@ -615,6 +636,7 @@ export default function Employees() {
         role: emp.user?.role?.toLowerCase() || 'assistant',
         email: emp.user?.email || '',
         jobTitle: emp.jobTitle || emp.specialization || 'Staff',
+        employmentType: emp.employmentType || 'FULL_TIME',
         startDate: emp.joiningDate ? emp.joiningDate.split('T')[0] : '',
         endDate: emp.endDate ? emp.endDate.split('T')[0] : '',
         licenseExpiry: emp.licenseExpiry ? emp.licenseExpiry.split('T')[0] : '',
@@ -632,8 +654,20 @@ export default function Employees() {
     }
   };
 
+  const isSystemAdminAccount = (employee) => {
+    const role = String(employee.role || '').toLowerCase();
+    const name = String(employee.name || '').trim().toLowerCase();
+    const email = String(employee.email || '').trim().toLowerCase();
+
+    return role === 'admin' && (
+      email === 'dr.talal.alalawi@gmail.com' ||
+      name === 'admin' ||
+      name === 'admin .'
+    );
+  };
+
   const staffEmployees = useMemo(() => (
-    employees.filter(employee => employee.role !== 'admin')
+    employees.filter(employee => !isSystemAdminAccount(employee))
   ), [employees]);
 
   const getStaffSection = (employee) => {
@@ -698,6 +732,7 @@ export default function Employees() {
         'name',
         'idNumber',
         'jobTitle',
+        'employmentType',
         'licenseExpiry',
         'visaExpiry',
         'workPermitExpiry',
@@ -740,6 +775,7 @@ export default function Employees() {
         visaExpiry: cleanDate(form.visaExpiry),
         workPermitExpiry: cleanDate(form.workPermitExpiry),
         basicSalary: form.basicSalary || 0,
+        employmentType: form.employmentType || 'FULL_TIME',
         profileImageUrl: form.image,
         scheduleColor: form.scheduleColor || null,
         documents: form.documents
@@ -756,6 +792,27 @@ export default function Employees() {
     } catch (err) {
       console.error('Error saving employee:', err);
       alert(err.response?.data?.message || 'Error saving employee');
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetItem) return;
+    if (!resetPassword || resetPassword.length < 6) {
+      alert('Password must be at least 6 characters');
+      return;
+    }
+
+    setResettingPassword(true);
+    try {
+      await API.patch(`/employees/${resetItem.id}/reset-password`, { password: resetPassword });
+      alert(`Password reset for ${resetItem.name}. Temporary password: ${resetPassword}`);
+      setResetItem(null);
+      setResetPassword('Dental@123');
+    } catch (err) {
+      console.error('Error resetting password:', err);
+      alert(err.response?.data?.message || 'Error resetting password');
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -777,6 +834,7 @@ export default function Employees() {
       'Employee Name',
       'Role',
       'Job Title',
+      'Employment Type',
       'Email',
       'Phone',
       'ID Number',
@@ -792,6 +850,7 @@ export default function Employees() {
       employee.name || '',
       employee.role || '',
       employee.jobTitle || '',
+      employee.employmentType === 'PART_TIME' ? 'Part Time' : 'Full Time',
       employee.email || '',
       employee.phone || '',
       employee.idNumber || '',
@@ -1021,10 +1080,10 @@ export default function Employees() {
 
       {/* Desktop View: Table */}
       <div className="hidden md:block card p-0 overflow-hidden shadow-sm border-gray-100">
-        <div className="table-container">
+        <div className="table-container overflow-auto max-h-[calc(100vh-300px)]">
           <table className="table">
-            <thead>
-              <tr className="bg-gray-50/50">
+            <thead className="sticky top-0 z-20 bg-gray-50 shadow-sm">
+              <tr className="bg-gray-50">
                 <th className="px-6 py-4">Employee Name</th>
                 <th className="hidden lg:table-cell px-6 py-4">ID Number & Contact</th>
                 <th className="px-6 py-4">Job Title</th>
@@ -1090,8 +1149,13 @@ export default function Employees() {
                         <Eye size={15} />
                       </button>
                       {checkPermission('employees', 'update') && (
-                        <button onClick={() => { setEditItem(e); setModal('edit'); }} className="p-2 rounded-xl text-gray-400 hover:text-secondary hover:bg-orange-50 transition-all">
+                        <button onClick={() => { setEditItem(e); setModal('edit'); }} className="p-2 rounded-xl text-gray-400 hover:text-secondary hover:bg-orange-50 transition-all" title="Edit employee">
                           <Edit2 size={15} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => { setResetItem(e); setResetPassword('Dental@123'); }} className="p-2 rounded-xl text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all" title="Reset password">
+                          <KeyRound size={15} />
                         </button>
                       )}
                       {checkPermission('employees', 'delete') && (
@@ -1134,6 +1198,9 @@ export default function Employees() {
                 <div>
                   <h3 className="font-bold text-gray-800 text-sm leading-tight">{e.name}</h3>
                   <p className="text-[10px] text-gray-400 font-mono mt-0.5">{e.idNumber}</p>
+                  <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${e.employmentType === 'PART_TIME' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                    {e.employmentType === 'PART_TIME' ? 'Part Time' : 'Full Time'}
+                  </p>
                 </div>
               </div>
               <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-widest ${ROLE_COLORS[e.role] || 'bg-gray-100 text-gray-600'}`}>
@@ -1172,6 +1239,11 @@ export default function Employees() {
                 <button onClick={() => { setEditItem(e); setModal('edit'); }} className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100 transition-all">
                   <Edit2 size={16} />
                 </button>
+                {isAdmin && (
+                  <button onClick={() => { setResetItem(e); setResetPassword('Dental@123'); }} className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-100 transition-all">
+                    <KeyRound size={16} />
+                  </button>
+                )}
                 <button onClick={() => setConfirmDelete(e.id)} className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-100 transition-all">
                   <Trash2 size={16} />
                 </button>
@@ -1203,6 +1275,42 @@ export default function Employees() {
         onConfirm={deleteEmployee}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {resetItem && (
+        <div className="modal-overlay z-[160]" onClick={() => !resettingPassword && setResetItem(null)}>
+          <div className="modal-content max-w-md bg-white p-6 space-y-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Admin Action</p>
+                <h2 className="text-xl font-black text-gray-900">Reset Employee Password</h2>
+              </div>
+              <button onClick={() => setResetItem(null)} className="p-2 rounded-xl text-gray-400 hover:bg-gray-100" disabled={resettingPassword}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="rounded-2xl bg-indigo-50 border border-indigo-100 p-4">
+              <p className="text-sm font-bold text-gray-800">{resetItem.name}</p>
+              <p className="text-xs text-gray-500">{resetItem.email}</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-widest text-gray-500">New Temporary Password</label>
+              <input
+                type="text"
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+                className="input w-full"
+                minLength={6}
+              />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setResetItem(null)} className="btn-ghost flex-1" disabled={resettingPassword}>Cancel</button>
+              <button onClick={handleResetPassword} className="btn-primary flex-1" disabled={resettingPassword}>
+                {resettingPassword ? 'Resetting...' : 'Reset Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         isOpen={showImportSuccess}

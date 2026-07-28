@@ -30,10 +30,55 @@ const normalizeFileUrl = (url = '') => (
   url && url.startsWith('http') ? url : (url ? `${BACKEND_URL}${url}` : '')
 );
 
-const getAttachmentLinks = (attachments = []) => (
-  (Array.isArray(attachments) ? attachments : [])
-    .map(item => normalizeFileUrl(typeof item === 'string' ? item : item?.fileUrl || item?.url || ''))
+const normalizeAttachmentItem = (item) => {
+  if (!item) return null;
+  if (typeof item === 'string') {
+    const fileUrl = normalizeFileUrl(item);
+    return fileUrl ? { fileUrl, fileName: fileUrl.split('/').pop()?.split('?')[0] || 'Attachment' } : null;
+  }
+
+  const rawUrl = item.fileUrl || item.url || item.href || item.path || item.src || '';
+  const fileUrl = normalizeFileUrl(rawUrl);
+  if (!fileUrl) return null;
+
+  return {
+    ...item,
+    fileUrl,
+    fileName: item.fileName || item.name || item.title || fileUrl.split('/').pop()?.split('?')[0] || 'Attachment',
+    fileType: item.fileType || item.type || ''
+  };
+};
+
+const getAttachmentObjects = (...sources) => {
+  const flattened = sources.flatMap(source => {
+    if (!source) return [];
+    return Array.isArray(source) ? source : [source];
+  });
+
+  const seen = new Set();
+  return flattened
+    .map(normalizeAttachmentItem)
     .filter(Boolean)
+    .filter(item => {
+      if (seen.has(item.fileUrl)) return false;
+      seen.add(item.fileUrl);
+      return true;
+    });
+};
+
+const getCaseAttachmentObjects = (caseItem = {}) => getAttachmentObjects(
+  caseItem.documents,
+  caseItem.attachments,
+  caseItem.images,
+  caseItem.files,
+  caseItem.documentUrls,
+  caseItem.attachmentUrls,
+  caseItem.fileUrl,
+  caseItem.attachment
+);
+
+const getAttachmentLinks = (attachments = []) => (
+  getAttachmentObjects(attachments).map(item => item.fileUrl)
 );
 
 const getAttachmentLabel = (index) => `Link ${index + 1}`;
@@ -197,6 +242,31 @@ const normalizeWorkflowStatus = (status) => {
   return value === 'COMPLETED' ? 'Completed' : 'Pending';
 };
 
+const getLatestLabMovement = (logs = []) => {
+  const latest = (Array.isArray(logs) ? logs : [])
+    .filter(log => ['PICKUP', 'DELIVERY'].includes(String(log?.type || log?.label || '').trim().toUpperCase()))
+    .sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0))[0];
+
+  if (!latest) return null;
+
+  const type = String(latest.type || latest.label || '').trim().toUpperCase() === 'PICKUP' ? 'Pickup' : 'Delivery';
+  const createdAt = latest.createdAt || latest.date ? new Date(latest.createdAt || latest.date) : null;
+  return {
+    type,
+    label: type,
+    status: type === 'Pickup' ? 'Sent to Lab' : 'Received from Lab',
+    date: createdAt && !Number.isNaN(createdAt.getTime())
+      ? createdAt.toLocaleString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      : '-'
+  };
+};
+
 const localInputToIso = (value) => {
   if (!value) return null;
   const date = new Date(value);
@@ -246,6 +316,7 @@ function LabCaseModal({
   dentistId: dentists[0]?.id || '',
   status: 'Pending',
   paymentStatus: 'Unpaid',
+  branch: 'Tubli Branch',
   createdAt: '',
   expectedDate: '',
   totalCost: 0,
@@ -282,6 +353,7 @@ useEffect(() => {
 
     status: caseItem.status ?? 'Pending',
     paymentStatus: caseItem.paymentStatus ?? 'Unpaid',
+    branch: caseItem.branch || 'Tubli Branch',
 
     createdAt: caseItem.createdAt
   ? toInputDate(caseItem.createdAt)
@@ -294,12 +366,12 @@ useEffect(() => {
     totalCost: Number(caseItem.totalCost) || 0,
     amountPaid: Number(caseItem.amountPaid) || 0,
 
-    images: caseItem.images
-  ? Array.isArray(caseItem.images)
-    ? caseItem.images
-    : [caseItem.images]
-  : [],
+    images: getCaseAttachmentObjects(caseItem).map(doc => doc.fileUrl),
   });
+
+  const caseAttachments = getCaseAttachmentObjects(caseItem);
+  setAttachmentDocs(caseAttachments);
+  setImages(caseAttachments.map(doc => doc.fileUrl));
 
 }, [caseItem]);
 
@@ -307,6 +379,7 @@ useEffect(() => {
   // ✅ NEW FIELD
  
   const [images, setImages] = useState(form.images || []);
+  const [attachmentDocs, setAttachmentDocs] = useState([]);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [logs, setLogs] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -395,6 +468,34 @@ useEffect(() => {
     }
   };
 
+  const handleDeleteAttachment = async (attachment) => {
+    if (!attachment) return;
+
+    if (attachment.pending) {
+      setAttachmentDocs(prev => prev.filter(item => item.tempId !== attachment.tempId));
+      setImages(prev => prev.filter(url => url !== attachment.fileUrl));
+      setPendingFiles(prev => prev.filter(file => file !== attachment.file));
+      return;
+    }
+
+    if (!attachment.id || !caseItem?.id) {
+      setAttachmentDocs(prev => prev.filter(item => item.fileUrl !== attachment.fileUrl));
+      setImages(prev => prev.filter(url => url !== attachment.fileUrl));
+      return;
+    }
+
+    if (!window.confirm('Delete this attachment from the lab case?')) return;
+
+    try {
+      await API.delete(`/lab-cases/${caseItem.id}/documents/${attachment.id}`);
+      setAttachmentDocs(prev => prev.filter(item => item.id !== attachment.id));
+      setImages(prev => prev.filter(url => url !== attachment.fileUrl));
+      if (onSave) onSave({ ...form, id: caseItem.id, refreshOnly: true });
+    } catch (err) {
+      console.error('Error deleting lab case attachment:', err);
+      alert(err?.response?.data?.message || 'Failed to delete attachment');
+    }
+  };
   const handleSubmit = (e) => {
     e.preventDefault();
     onSave({ ...form, images, logs, payments, pendingFiles });
@@ -606,7 +707,7 @@ useEffect(() => {
                 <div>
                   <p className="text-sm font-bold text-gray-800 tracking-tight">Click to upload or drag and drop</p>
                   <p className="text-[11px] text-gray-400 mt-1 font-medium italic">image/*, application/pdf, .doc, .docx (Max 10MB per file)</p>
-                  <p className="text-[11px] text-blue-600 font-bold mt-2 uppercase tracking-widest">{images.length} / 10 files uploaded</p>
+                  <p className="text-[11px] text-blue-600 font-bold mt-2 uppercase tracking-widest">{attachmentDocs.length} / 10 files uploaded</p>
                 </div>
                 <input 
                   type="file" 
@@ -615,8 +716,17 @@ useEffect(() => {
                   id="modal-file-upload" 
                   onChange={(e) => {
                     const files = Array.from(e.target.files);
+                    const newAttachments = files.map(file => ({
+                      tempId: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+                      file,
+                      fileUrl: URL.createObjectURL(file),
+                      fileName: file.name,
+                      fileType: file.type,
+                      pending: true
+                    }));
                     setPendingFiles(prev => [...prev, ...files]);
-                    setImages(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+                    setAttachmentDocs(prev => [...prev, ...newAttachments]);
+                    setImages(prev => [...prev, ...newAttachments.map(item => item.fileUrl)]);
                     e.target.value = ''; // Reset to allow re-uploading same file
                   }}
                 />
@@ -624,25 +734,35 @@ useEffect(() => {
               </div>
               
               {/* Thumbnails display */}
-              {images.length > 0 && (
+              {attachmentDocs.length > 0 && (
                 <div className="flex flex-wrap gap-3 p-4 bg-gray-50/50 rounded-2xl border border-gray-100">
-                  {images.map((img, i) => (
-                    <div key={i} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-gray-200 shadow-sm animate-fade-in">
-                      <img 
-                        src={img} 
-                        alt="" 
-                        className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" 
-                        onClick={() => setPreviewFile(img)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setImages(prev => prev.filter((_, idx) => idx !== i))}
-                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                      >
-                        <CloseIcon size={12} />
-                      </button>
-                    </div>
-                  ))}
+                  {attachmentDocs.map((attachment, i) => {
+                    const img = attachment.fileUrl;
+                    const ext = String(img).split('?')[0].split('.').pop()?.toLowerCase() || '';
+                    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext) || String(img).startsWith('blob:');
+                    return (
+                      <div key={i} className="relative group w-20 h-20 rounded-xl overflow-hidden border border-gray-200 shadow-sm animate-fade-in cursor-pointer" onClick={() => setPreviewFile(img)}>
+                        {isImage ? (
+                          <img src={img} alt="" className="w-full h-full object-cover hover:scale-110 transition-transform" />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 gap-1 px-1 text-center">
+                            <FileText size={24} className="text-primary" />
+                            <span className="text-[9px] font-black text-gray-500 uppercase truncate max-w-full">{ext || 'file'}</span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteAttachment(attachment);
+                          }}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        >
+                          <CloseIcon size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1169,6 +1289,7 @@ export default function LabCases() {
   const [labFilter, setLabFilter] = useState('All');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [sortBy, setSortBy] = useState('createdDesc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [quickLogBusy, setQuickLogBusy] = useState(null);
@@ -1267,9 +1388,13 @@ export default function LabCases() {
 
   branch: c.branch || 'Tubli Branch',
 
-  images: (c.documents || []).map(doc => {
-    return normalizeFileUrl(doc.fileUrl || '');
-  }),
+  images: getCaseAttachmentObjects(c).map(doc => doc.fileUrl),
+  attachmentDocuments: getCaseAttachmentObjects(c),
+  lastLabMovement: getLatestLabMovement([
+    ...(c.lastLabMovement ? [c.lastLabMovement] : []),
+    ...(c.logs || []),
+    ...(c.caseLogs || [])
+  ]),
   timeline: (c.logs || []).map(log => ({
     date: log.createdAt ? new Date(log.createdAt).toLocaleString('en-GB') : '',
     status: log.type === 'Pickup' ? 'Sent to Lab' : log.type === 'Delivery' ? 'Received from Lab' : log.type,
@@ -1360,6 +1485,32 @@ const matchDateFrom = !from || (caseDate && caseDate >= from);
 const matchDateTo = !to || (caseDate && caseDate <= to);
 
   return matchSearch && matchStatus && matchPay && matchBranch && matchDentist && matchLab && matchDateFrom && matchDateTo;
+}).sort((a, b) => {
+  const parseSortDate = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+    const str = String(value);
+    if (str.includes('/')) {
+      const [day, month, year] = str.split('/');
+      return new Date(`${year}-${month}-${day}`);
+    }
+    const parsed = new Date(str);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const field = sortBy.startsWith('due') ? 'expectedDate' : 'createdAt';
+  const direction = sortBy.endsWith('Asc') ? 1 : -1;
+  const aDate = parseSortDate(a[field]);
+  const bDate = parseSortDate(b[field]);
+  const aTime = aDate?.getTime();
+  const bTime = bDate?.getTime();
+  const aMissing = !Number.isFinite(aTime);
+  const bMissing = !Number.isFinite(bTime);
+
+  if (aMissing && bMissing) return 0;
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  return direction * (aTime - bTime);
 });
 
 const selectedTotal = cases
@@ -1368,7 +1519,7 @@ const selectedTotal = cases
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, payFilter, branchFilter, dentistFilter, labFilter, dateFrom, dateTo]);
+  }, [search, statusFilter, payFilter, branchFilter, dentistFilter, labFilter, dateFrom, dateTo, sortBy]);
 
 const paginated = useMemo(() => {
   const start = (page - 1) * pageSize;
@@ -1428,15 +1579,29 @@ console.log("FORM DATA:", form);
   status: apiStatusMap[form.status] || String(form.status || 'Pending').toUpperCase().replace(/\s+/g, '_'),
   cost: parseFloat(form.totalCost) || 0,
   expectedDate: form.expectedDate || null,
+  branch: form.branch || 'Tubli Branch',
 };
 
 // ✅ RIGHT PLACE (outside the object)
 console.log("SENDING PAYLOAD:", payload);
 
+let savedId = editItem?.id;
 if (editItem) {
   await API.put(`/lab-cases/${editItem.id}`, payload);
 } else {
-  await API.post('/lab-cases', payload);
+  const res = await API.post('/lab-cases', payload);
+  savedId = res.data?.id;
+}
+
+if (form.pendingFiles && form.pendingFiles.length > 0 && savedId) {
+  for (const file of form.pendingFiles) {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('title', file.name || 'Lab Case Attachment');
+    fd.append('category', 'Lab Case');
+    fd.append('labCaseId', savedId);
+    await API.post(`/lab-cases/${savedId}/documents`, fd);
+  }
 }
 
     // ✅ CLOSE MODAL AFTER SAVE
@@ -1979,6 +2144,20 @@ const handleExportAttachmentsPDF = async () => {
   </select>
   <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={14} />
 </div>
+{/* Sort Filter */}
+<div className="relative w-full sm:w-1/2 lg:w-auto min-w-0">
+  <select
+    value={sortBy}
+    onChange={e => setSortBy(e.target.value)}
+    className="h-11 w-full lg:min-w-[160px] appearance-none bg-gray-50/50 border border-gray-100 rounded-xl px-3 pr-8 text-[11px] font-bold text-gray-600 focus:ring-4 focus:ring-orange-500/5 focus:border-orange-500 outline-none transition-all cursor-pointer min-w-0"
+  >
+    <option value="createdDesc">Created Newest</option>
+    <option value="createdAsc">Created Oldest</option>
+    <option value="dueAsc">Due Soonest</option>
+    <option value="dueDesc">Due Latest</option>
+  </select>
+  <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 rotate-90" size={14} />
+</div>
             {/* Date Range with Clarity */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full lg:w-auto">
               <div className="relative group min-w-0">
@@ -2092,8 +2271,8 @@ const handleExportAttachmentsPDF = async () => {
         <div className="hidden lg:block card p-0 overflow-hidden border-gray-100 shadow-sm rounded-3xl min-w-0">
           <div className="table-container overflow-auto max-h-[calc(100vh-260px)]">
             <table className="table w-full">
-              <thead>
-                <tr className="bg-gray-50/50">
+              <thead className="sticky top-0 z-20 bg-gray-50 shadow-sm">
+                <tr className="bg-gray-50">
                   <th className="w-14 text-center px-4">
                     <input 
                       type="checkbox" 
@@ -2106,16 +2285,20 @@ const handleExportAttachmentsPDF = async () => {
 <th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Laboratory</th>
 <th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Prosthesis</th>
 <th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Status</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Created</th>
 <th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Due Date</th>
 <th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Amount Due</th>
 <th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Payment</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-center">Pickup</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-center">Delivery</th>
+<th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-left">Last Log</th>
 <th className="px-6 py-4 text-[11px] font-black text-gray-700 uppercase text-right">Actions</th>
 </tr>
               </thead>
               <tbody>
   {filtered.length === 0 ? (
     <tr>
-      <td colSpan={9} className="text-center text-gray-400 py-10">
+      <td colSpan={13} className="text-center text-gray-400 py-10">
         No lab cases found.
       </td>
     </tr>
@@ -2158,6 +2341,11 @@ const handleExportAttachmentsPDF = async () => {
       <StatusBadge status={c.status} />
     </td>
 
+    {/* Created Date */}
+    <td className="px-4 py-2 text-sm whitespace-nowrap text-gray-600">
+      {c.createdAt || '-'}
+    </td>
+
     {/* Due Date */}
     <td className="px-4 py-2 text-sm whitespace-nowrap">
     {c.expectedDate
@@ -2175,11 +2363,9 @@ const handleExportAttachmentsPDF = async () => {
       <PayBadge status={c.paymentStatus} />
     </td>
 
-    {/* ACTIONS */}
-    <td className="px-4 py-2">
-      <div className="flex items-center justify-end gap-2">
-      {checkPermission('lab_cases', 'update') && (
-        <>
+    {/* Pickup */}
+    <td className="px-4 py-2 text-center">
+      {checkPermission('lab_cases', 'update') ? (
           <button
             type="button"
             onClick={() => handleQuickLog(c, 'Pickup')}
@@ -2189,6 +2375,14 @@ const handleExportAttachmentsPDF = async () => {
           >
             <ArrowUpRight size={13} /> Pickup
           </button>
+      ) : (
+        <span className="text-xs font-semibold text-gray-300">-</span>
+      )}
+    </td>
+
+    {/* Delivery */}
+    <td className="px-4 py-2 text-center">
+      {checkPermission('lab_cases', 'update') ? (
           <button
             type="button"
             onClick={() => handleQuickLog(c, 'Delivery')}
@@ -2198,8 +2392,33 @@ const handleExportAttachmentsPDF = async () => {
           >
             <ArrowDownLeft size={13} /> Delivery
           </button>
-        </>
+      ) : (
+        <span className="text-xs font-semibold text-gray-300">-</span>
       )}
+    </td>
+
+    {/* Last Log */}
+    <td className="px-4 py-2">
+      {c.lastLabMovement ? (
+        <div className="min-w-[130px] flex flex-col items-start justify-center gap-1">
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold ${
+            c.lastLabMovement.type === 'Pickup'
+              ? 'border-indigo-100 bg-indigo-50 text-indigo-700'
+              : 'border-orange-100 bg-orange-50 text-orange-700'
+          }`}>
+            {c.lastLabMovement.type === 'Pickup' ? <ArrowUpRight size={12} /> : <ArrowDownLeft size={12} />}
+            {c.lastLabMovement.label}
+          </span>
+          <div className="text-[11px] font-semibold text-gray-500 whitespace-nowrap leading-none">{c.lastLabMovement.date}</div>
+        </div>
+      ) : (
+        <span className="text-xs font-semibold text-gray-300">-</span>
+      )}
+    </td>
+
+    {/* ACTIONS */}
+    <td className="px-4 py-2">
+      <div className="flex items-center justify-end gap-2">
 
       <button
         type="button"
@@ -2286,6 +2505,23 @@ const handleExportAttachmentsPDF = async () => {
                 <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${c.status === 'Completed' ? 'bg-teal-50 text-teal-600 border-teal-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
                   {c.status}
                 </span>
+              </div>
+
+              <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Last Log</p>
+                {c.lastLabMovement ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-black ${
+                      c.lastLabMovement.type === 'Pickup' ? 'bg-indigo-50 text-indigo-700' : 'bg-orange-50 text-orange-700'
+                    }`}>
+                      {c.lastLabMovement.type === 'Pickup' ? <ArrowUpRight size={12} /> : <ArrowDownLeft size={12} />}
+                      {c.lastLabMovement.label}
+                    </span>
+                    <span className="text-[11px] font-bold text-gray-500">{c.lastLabMovement.date}</span>
+                  </div>
+                ) : (
+                  <p className="text-xs font-semibold text-gray-400">No pickup or delivery log yet</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-3 border-t border-gray-50">

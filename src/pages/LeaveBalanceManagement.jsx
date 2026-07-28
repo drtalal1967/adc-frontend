@@ -14,9 +14,13 @@ import {
   Calendar, 
   Clock, 
   Info,
-  ChevronDown
+  AlertTriangle,
+  ChevronDown,
+  FileText
 } from 'lucide-react';
 import ConfirmModal from '../components/ConfirmModal';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const LEAVE_TYPES = [
   { id: 'annual', label: 'Annual Leave', color: 'primary' },
@@ -89,11 +93,168 @@ function ViewBalanceModal({ item, onClose }) {
   );
 }
 
+const LEAVE_TYPE_MAP = {
+  annual: 'ANNUAL',
+  sick: 'SICK',
+  relativesDeath: 'RELATIVES_DEATH',
+  hajj: 'HAJJ',
+  marriage: 'MARRIAGE',
+  others: 'OTHERS',
+  maternity: 'MATERNITY',
+};
+
+const toDateKey = (value) => {
+  if (!value) return '';
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+};
+
+const formatReportDate = (value) => {
+  const key = toDateKey(value);
+  if (!key) return '';
+  const [year, month, day] = key.split('-');
+  return `${day}/${month}/${year}`;
+};
+
+function LeaveMovementReportModal({ rows, summary, onClose }) {
+  if (!rows) return null;
+
+  const handleExportPdf = () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const generatedAt = new Date().toLocaleString('en-GB');
+
+    doc.setFontSize(15);
+    doc.setTextColor(31, 48, 79);
+    doc.text('Leave Movement Report', 12, 14);
+    doc.setFontSize(9);
+    doc.setTextColor(90, 100, 115);
+    doc.text(summary.title || '', 12, 21);
+    doc.text(summary.subtitle || '', 12, 27);
+    doc.text(`Generated: ${generatedAt}`, 12, 33);
+    doc.text(
+      `Closing Balance: ${summary.closingBalance.toFixed(2)}    Total Additions: ${summary.totalAdditions.toFixed(2)}    Subtractions: ${summary.totalDeductions.toFixed(2)}`,
+      12,
+      39
+    );
+
+    autoTable(doc, {
+      startY: 45,
+      head: [['Date', 'Employee', 'Leave Type', 'Movement', 'Added', 'Subtracted', 'Balance', 'Notes']],
+      body: rows.map(row => [
+        formatReportDate(row.date),
+        row.employeeName || '',
+        row.leaveLabel || '',
+        row.movement || '',
+        row.added ? row.added.toFixed(2) : '',
+        row.subtracted ? row.subtracted.toFixed(2) : '',
+        Number(row.balanceAfter || 0).toFixed(2),
+        row.notes || ''
+      ]),
+      margin: { left: 10, right: 10 },
+      styles: { fontSize: 7, cellPadding: 1.5, overflow: 'linebreak', valign: 'middle' },
+      headStyles: { fillColor: [47, 72, 151], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 22 },
+        1: { cellWidth: 38 },
+        2: { cellWidth: 28 },
+        3: { cellWidth: 34 },
+        4: { cellWidth: 18, halign: 'right' },
+        5: { cellWidth: 22, halign: 'right' },
+        6: { cellWidth: 20, halign: 'right' },
+        7: { cellWidth: 103 }
+      }
+    });
+
+    doc.save(`Leave_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  return (
+    <div className="modal-overlay z-[120]" onClick={onClose}>
+      <div className="modal-content w-[96vw] max-w-[1500px] bg-white overflow-hidden rounded-[2rem] shadow-2xl animate-scale-in flex flex-col" style={{ maxHeight: 'min(90vh, 840px)' }} onClick={e => e.stopPropagation()}>
+        <div className="bg-gradient-header px-8 py-6 flex items-center justify-between text-white shrink-0">
+          <div>
+            <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold">Leave Movement Report</p>
+            <h2 className="font-black text-2xl tracking-tight mt-1">{summary.title}</h2>
+            <p className="text-xs text-white/70 mt-1">{summary.subtitle}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-all"><X size={22} /></button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 p-5 bg-gray-50 border-b border-gray-100 shrink-0">
+          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Closing Balance</p>
+            <p className="text-2xl font-black text-blue-700 mt-1">{summary.closingBalance.toFixed(2)}</p>
+          </div>
+          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total Additions</p>
+            <p className="text-2xl font-black text-emerald-600 mt-1">{summary.totalAdditions.toFixed(2)}</p>
+          </div>
+          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Subtractions</p>
+            <p className="text-2xl font-black text-rose-600 mt-1">{summary.totalDeductions.toFixed(2)}</p>
+          </div>
+          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Net Movement</p>
+            <p className="text-2xl font-black text-primary mt-1">{summary.netMovement.toFixed(2)}</p>
+          </div>
+          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Rows</p>
+            <p className="text-2xl font-black text-gray-800 mt-1">{rows.length}</p>
+          </div>
+        </div>
+        <div className="overflow-auto flex-1">
+          <table className="w-full text-left min-w-[1120px]">
+            <thead className="bg-gray-50 sticky top-0 z-10">
+              <tr className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                <th className="px-5 py-3">Date</th>
+                <th className="px-5 py-3">Employee</th>
+                <th className="px-5 py-3">Leave Type</th>
+                <th className="px-5 py-3">Movement</th>
+                <th className="px-5 py-3 text-right">Added</th>
+                <th className="px-5 py-3 text-right">Subtracted</th>
+                <th className="px-5 py-3 text-right">Balance</th>
+                <th className="px-5 py-3">Notes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {rows.length === 0 ? (
+                <tr><td colSpan="8" className="px-5 py-10 text-center text-sm font-bold text-gray-400">No leave movements found for this selection.</td></tr>
+              ) : rows.map((row, index) => (
+                <tr key={`${row.employeeId}-${row.leaveType}-${row.date}-${index}`} className="text-sm">
+                  <td className="px-5 py-3 font-bold text-gray-700">{formatReportDate(row.date)}</td>
+                  <td className="px-5 py-3 font-bold text-gray-800">{row.employeeName}</td>
+                  <td className="px-5 py-3 text-gray-600">{row.leaveLabel}</td>
+                  <td className="px-5 py-3">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${row.kind === 'addition' ? 'bg-emerald-50 text-emerald-600' : row.kind === 'deduction' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
+                      {row.movement}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-right font-black text-emerald-600">{row.added ? row.added.toFixed(2) : ''}</td>
+                  <td className="px-5 py-3 text-right font-black text-rose-600">{row.subtracted ? row.subtracted.toFixed(2) : ''}</td>
+                  <td className="px-5 py-3 text-right font-black text-gray-900">{Number(row.balanceAfter || 0).toFixed(2)}</td>
+                  <td className="px-5 py-3 text-xs font-semibold text-gray-500">{row.notes}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3 shrink-0">
+          <button onClick={handleExportPdf} className="btn-export-pdf px-6 py-3 rounded-2xl text-sm font-black flex items-center gap-2"><FileText size={16} /> Export PDF</button>
+          <button onClick={onClose} className="btn-primary px-8 py-3 rounded-2xl text-sm font-black">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LeaveBalanceManagement() {
   const { user, checkPermission } = useAuth();
   const canUpdate = checkPermission('leave_balance', 'update');
   const canDelete = checkPermission('leave_balance', 'delete');
-  const canRunMonthlyUpdate = user?.role === 'admin' && canUpdate;
+  const canRunMonthlyUpdate = String(user?.role || '').toLowerCase() === 'admin' && canUpdate;
   const [balances, setBalances] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +265,15 @@ export default function LeaveBalanceManagement() {
   const [editFormData, setEditFormData] = useState(null);
   const [viewItem, setViewItem] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [publicHolidays, setPublicHolidays] = useState([]);
+  const [holidayForm, setHolidayForm] = useState({ name: '', date: '', endDate: '', notes: '' });
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [reportForm, setReportForm] = useState({
+    employeeId: 'All',
+    leaveType: 'annual',
+    year: String(new Date().getFullYear())
+  });
+  const [reportData, setReportData] = useState(null);
 
   const canEditLeaveType = (typeId) => {
     if (!canUpdate) return false;
@@ -118,12 +288,16 @@ export default function LeaveBalanceManagement() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [balRes, empRes] = await Promise.all([
+      const [balRes, empRes, holidayRes, leavesRes] = await Promise.all([
         API.get('/leave-balance'),
-        API.get('/employees')
+        API.get('/employees'),
+        API.get(`/public-holidays?year=${new Date().getFullYear()}`),
+        API.get('/leave-requests')
       ]);
       setBalances(balRes.data);
       setEmployees(empRes.data);
+      setPublicHolidays(holidayRes.data || []);
+      setLeaveRequests(leavesRes.data || []);
     } catch (err) {
       console.error('Error fetching balance data:', err);
     } finally {
@@ -177,12 +351,12 @@ export default function LeaveBalanceManagement() {
 
   const runMonthlyUpdate = async () => {
     try {
-      if (!window.confirm("Are you sure you want to run the monthly leave update? This will add 2.5 days to Annual Leave for all active employees. Sick Leave is controlled manually.")) return;
+      if (!window.confirm("Manual Monthly Update is only a backup if the automatic monthly update did not run. It will add 2.5 days to Annual Leave for all active employees and can duplicate the monthly credit if run twice. Continue?")) return;
       await API.post('/leave-balance/monthly-update');
       fetchData();
-      alert('Monthly update completed successfully');
+      alert('Manual monthly update completed successfully');
     } catch (err) {
-      alert('Failed to run monthly update');
+      alert('Failed to run manual monthly update');
     }
   };
 
@@ -205,6 +379,183 @@ export default function LeaveBalanceManagement() {
         alert('Failed to delete leave balance');
       }
     }
+  };
+
+  const handleAddHoliday = async () => {
+    const payload = { ...holidayForm, endDate: holidayForm.endDate || holidayForm.date };
+    if (!payload.name.trim() || !payload.date) {
+      alert('Please enter the holiday name and start date.');
+      return;
+    }
+    if (payload.endDate && payload.endDate < payload.date) {
+      alert('The holiday end date cannot be before the start date.');
+      return;
+    }
+    try {
+      await API.post('/public-holidays', payload);
+      setHolidayForm({ name: '', date: '', endDate: '', notes: '' });
+      fetchData();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to save public holiday');
+    }
+  };
+
+  const handleDeleteHoliday = async (id) => {
+    if (!window.confirm('Delete this public holiday?')) return;
+    try {
+      await API.delete(`/public-holidays/${id}`);
+      setPublicHolidays(prev => prev.filter(holiday => holiday.id !== id));
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete public holiday');
+    }
+  };
+
+  const formatHolidayDate = (value) => {
+    if (!value) return '';
+    const [year, month, day] = String(value).slice(0, 10).split('-');
+    return `${day}/${month}/${year}`;
+  };
+
+  const formatHolidayRange = (holiday) => {
+    const start = formatHolidayDate(holiday.date);
+    const end = formatHolidayDate(holiday.endDate || holiday.date);
+    return start === end ? start : `${start} to ${end}`;
+  };
+
+  const buildLeaveReport = () => {
+    const year = parseInt(reportForm.year, 10) || new Date().getFullYear();
+    const todayKey = toDateKey(new Date());
+    const selectedLeaveTypes = reportForm.leaveType === 'All'
+      ? LEAVE_TYPES
+      : LEAVE_TYPES.filter(type => type.id === reportForm.leaveType);
+    const selectedEmployees = employees.filter(employee => {
+      if (reportForm.employeeId !== 'All' && String(employee.id) !== String(reportForm.employeeId)) return false;
+      return String(employee.employmentType || 'FULL_TIME').toUpperCase() !== 'PART_TIME';
+    });
+
+    const rows = [];
+    const addRow = (row) => rows.push(row);
+
+    selectedEmployees.forEach(employee => {
+      const balance = balances.find(item => Number(item.employeeId) === Number(employee.id));
+      const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim();
+
+      selectedLeaveTypes.forEach(type => {
+        const dbLeaveType = LEAVE_TYPE_MAP[type.id];
+        const balanceType = balance?.[type.id];
+        const typeAdditions = [];
+
+        if (type.id === 'annual') {
+          for (let month = 0; month < 12; month += 1) {
+            const date = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+            if (date <= todayKey) {
+              typeAdditions.push({ date, amount: 2.5, movement: 'Monthly Credit', notes: 'Automatic annual leave monthly addition' });
+            }
+          }
+        } else if (type.id === 'sick' && employee.joiningDate) {
+          const joinKey = toDateKey(employee.joiningDate);
+          const [, month, day] = joinKey.split('-');
+          const date = `${year}-${month}-${day}`;
+          if (date <= todayKey) {
+            typeAdditions.push({ date, amount: 15, movement: 'Yearly Credit', notes: 'Sick leave yearly employment anniversary addition' });
+          }
+        }
+
+        const approvedRequests = leaveRequests.filter(request => (
+          Number(request.employeeId) === Number(employee.id) &&
+          String(request.leaveType || '').toUpperCase() === dbLeaveType &&
+          String(request.status || '').toUpperCase() === 'APPROVED' &&
+          String(toDateKey(request.startDate)).startsWith(String(year))
+        ));
+        const knownAdditionTotal = typeAdditions.reduce((sum, item) => sum + item.amount, 0);
+        const knownDeductionTotal = approvedRequests.reduce((sum, request) => sum + Number(request.totalDays || 0), 0);
+        const currentRemaining = Number(balanceType?.remaining || 0);
+        const reconciliation = currentRemaining - knownAdditionTotal + knownDeductionTotal;
+
+        if (Math.abs(reconciliation) > 0.001) {
+          addRow({
+            date: `${year}-01-01`,
+            employeeId: employee.id,
+            employeeName,
+            leaveType: dbLeaveType,
+            leaveLabel: type.label,
+            kind: reconciliation >= 0 ? 'addition' : 'deduction',
+            movement: reconciliation >= 0 ? 'Opening / Manual Balance' : 'Manual Reduction',
+            added: reconciliation > 0 ? reconciliation : 0,
+            subtracted: reconciliation < 0 ? Math.abs(reconciliation) : 0,
+            order: 0,
+            notes: 'Opening/reconciliation balance so the statement closing balance matches the current remaining balance.'
+          });
+        }
+
+        typeAdditions.forEach(item => addRow({
+          date: item.date,
+          employeeId: employee.id,
+          employeeName,
+          leaveType: dbLeaveType,
+          leaveLabel: type.label,
+          kind: 'addition',
+          movement: item.movement,
+          added: item.amount,
+          subtracted: 0,
+          order: 1,
+          notes: item.notes
+        }));
+
+        approvedRequests.forEach(request => addRow({
+            date: toDateKey(request.startDate),
+            employeeId: employee.id,
+            employeeName,
+            leaveType: dbLeaveType,
+            leaveLabel: type.label,
+            kind: 'deduction',
+            movement: 'Approved Leave',
+            added: 0,
+            subtracted: Number(request.totalDays || 0),
+            order: 2,
+            notes: `${formatReportDate(request.startDate)} to ${formatReportDate(request.endDate)}${request.reason ? ` - ${request.reason}` : ''}`
+          }));
+      });
+    });
+
+    rows.sort((a, b) => (
+      a.employeeName.localeCompare(b.employeeName) ||
+      a.leaveLabel.localeCompare(b.leaveLabel) ||
+      a.date.localeCompare(b.date) ||
+      Number(a.order || 0) - Number(b.order || 0) ||
+      a.movement.localeCompare(b.movement)
+    ));
+
+    const runningBalances = new Map();
+    rows.forEach(row => {
+      const key = `${row.employeeId}-${row.leaveType}`;
+      const current = runningBalances.get(key) || 0;
+      const next = current + Number(row.added || 0) - Number(row.subtracted || 0);
+      row.balanceAfter = next;
+      runningBalances.set(key, next);
+    });
+
+    const totalAdditions = rows.reduce((sum, row) => sum + Number(row.added || 0), 0);
+    const totalDeductions = rows.reduce((sum, row) => sum + Number(row.subtracted || 0), 0);
+    const closingBalance = Array.from(runningBalances.values()).reduce((sum, amount) => sum + Number(amount || 0), 0);
+    const employeeLabel = reportForm.employeeId === 'All'
+      ? 'All full-time employees'
+      : selectedEmployees[0] ? `${selectedEmployees[0].firstName} ${selectedEmployees[0].lastName}` : 'Selected employee';
+    const typeLabel = reportForm.leaveType === 'All'
+      ? 'All leave types'
+      : LEAVE_TYPES.find(type => type.id === reportForm.leaveType)?.label || 'Selected leave type';
+
+    setReportData({
+      rows,
+      summary: {
+        title: `${employeeLabel} - ${year}`,
+        subtitle: typeLabel,
+        totalAdditions,
+        totalDeductions,
+        netMovement: totalAdditions - totalDeductions,
+        closingBalance,
+      }
+    });
   };
 
   const myBalance = useMemo(() => {
@@ -359,6 +710,7 @@ export default function LeaveBalanceManagement() {
   return (
     <div className="space-y-6 animate-fade-in pb-10">
       {viewItem && <ViewBalanceModal item={viewItem} onClose={() => setViewItem(null)} />}
+      {reportData && <LeaveMovementReportModal rows={reportData.rows} summary={reportData.summary} onClose={() => setReportData(null)} />}
       <ConfirmModal
         isOpen={!!confirmDelete}
         title="Remove Employee Balance?"
@@ -378,16 +730,151 @@ export default function LeaveBalanceManagement() {
           </div>
         </div>
         {canRunMonthlyUpdate && (
-          <button 
-            onClick={runMonthlyUpdate}
-            className="btn-primary flex items-center justify-center gap-2 px-6 py-3 rounded-2xl shadow-xl shadow-primary/20 font-bold text-sm transform transition-transform hover:scale-105 active:scale-95 whitespace-nowrap"
-          >
-            <Calendar size={18} /> Run Monthly Update
-          </button>
+          <div className="flex flex-col sm:items-end gap-2">
+            <button 
+              onClick={runMonthlyUpdate}
+              className="btn-primary flex items-center justify-center gap-2 px-6 py-3 rounded-2xl shadow-xl shadow-primary/20 font-bold text-sm transform transition-transform hover:scale-105 active:scale-95 whitespace-nowrap"
+            >
+              <Calendar size={18} /> Manual Monthly Update
+            </button>
+            <div className="flex items-start gap-2 max-w-sm text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-2xl px-3 py-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>Backup only. Automatic update already runs monthly; running this twice adds another 2.5 days.</span>
+            </div>
+          </div>
         )}
       </div>
 
       {myLeaveBalancesSection}
+
+      {canUpdate && (
+        <div className="card p-6 border-none shadow-sm bg-white">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 text-primary flex items-center justify-center">
+                <FileText size={20} />
+              </div>
+              <div>
+                <h2 className="text-sm font-black text-gray-800 tracking-tight">Leave Movement Report</h2>
+                <p className="text-xs font-semibold text-gray-500 mt-0.5">View leave additions, approved deductions, and balance reconciliation.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[1.25fr_1fr_0.75fr_auto] gap-3 flex-1 lg:max-w-4xl">
+              <select
+                value={reportForm.employeeId}
+                onChange={e => setReportForm(prev => ({ ...prev, employeeId: e.target.value }))}
+                className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="All">All Full-Time Employees</option>
+                {employees
+                  .filter(employee => String(employee.employmentType || 'FULL_TIME').toUpperCase() !== 'PART_TIME')
+                  .map(employee => (
+                    <option key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName}</option>
+                  ))}
+              </select>
+              <select
+                value={reportForm.leaveType}
+                onChange={e => setReportForm(prev => ({ ...prev, leaveType: e.target.value }))}
+                className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="All">All Leave Types</option>
+                {LEAVE_TYPES.map(type => <option key={type.id} value={type.id}>{type.label}</option>)}
+              </select>
+              <input
+                type="number"
+                value={reportForm.year}
+                min="2020"
+                max="2100"
+                onChange={e => setReportForm(prev => ({ ...prev, year: e.target.value }))}
+                className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              <button
+                type="button"
+                onClick={buildLeaveReport}
+                className="h-12 px-6 rounded-2xl bg-primary hover:bg-primary/90 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+              >
+                <Eye size={16} /> View Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {canUpdate && (
+        <div className="card p-6 border-none shadow-sm bg-white overflow-hidden">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-500 flex items-center justify-center">
+                  <Calendar size={20} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black text-gray-800 tracking-tight">Public Holidays</h2>
+                  <p className="text-xs font-semibold text-gray-500 mt-0.5">These date ranges will show in Work Schedule and will not be deducted from employee leave balances.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[1.1fr_0.75fr_0.75fr_1.2fr_auto] gap-3">
+                <input
+                  value={holidayForm.name}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Holiday name"
+                  className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  type="date"
+                  value={holidayForm.date}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, date: e.target.value, endDate: prev.endDate || e.target.value }))}
+                  title="From"
+                  className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  type="date"
+                  value={holidayForm.endDate}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, endDate: e.target.value }))}
+                  title="To"
+                  className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <input
+                  value={holidayForm.notes}
+                  onChange={e => setHolidayForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Notes (optional)"
+                  className="h-12 rounded-2xl border border-gray-100 bg-gray-50 px-4 text-sm font-bold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddHoliday}
+                  className="h-12 px-5 rounded-2xl bg-[#F58220] hover:bg-[#D97706] text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20"
+                >
+                  <Plus size={16} /> Add
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {publicHolidays.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs font-bold text-gray-400 md:col-span-2 xl:col-span-3">No public holidays added for this year.</div>
+            ) : publicHolidays.map(holiday => (
+              <div key={holiday.id} className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-gray-800 truncate">{holiday.name}</p>
+                  <p className="text-xs font-bold text-orange-600 mt-1">{formatHolidayRange(holiday)}</p>
+                  {holiday.notes && <p className="text-[11px] font-semibold text-gray-400 mt-1 truncate">{holiday.notes}</p>}
+                </div>
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteHoliday(holiday.id)}
+                    className="w-9 h-9 rounded-xl bg-white text-gray-400 hover:text-rose-500 hover:bg-rose-50 flex items-center justify-center border border-orange-100 transition-all shrink-0"
+                    title="Delete holiday"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Top Selector Card */}
       {canUpdate && (
