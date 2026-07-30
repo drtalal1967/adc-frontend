@@ -52,7 +52,11 @@ function RequestModal({ onClose, onSave, user }) {
   const [form, setForm] = useState({ type: 'Annual Leave', from: '', to: '', reason: '', branch: 'Manama Branch' });
   const [attachments, setAttachments] = useState([]);
   const [previewFile, setPreviewFile] = useState(null);
-  const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const update = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }));
+    if (k === 'type' && v === 'Annual Leave') setAttachments([]);
+  };
+  const allowsAttachments = form.type !== 'Annual Leave';
   const days = form.from && form.to ? Math.max(1, Math.round((new Date(form.to) - new Date(form.from)) / (1000 * 60 * 60 * 24)) + 1) : 0;
   
   const BRANCHES = ['Manama Branch', 'Tubli Branch'];
@@ -95,7 +99,7 @@ function RequestModal({ onClose, onSave, user }) {
             <label className="text-[11px] font-bold text-gray-500 uppercase mb-2 block tracking-widest">Reason for Leave</label>
             <textarea rows={3} value={form.reason} onChange={e => update('reason', e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="Please provide a brief reason..." />
           </div>
-          {true && (
+          {allowsAttachments && (
             <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-white text-primary flex items-center justify-center border border-blue-100 shrink-0">
@@ -121,7 +125,7 @@ function RequestModal({ onClose, onSave, user }) {
         <div className="px-8 py-6 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-4">
           <button onClick={onClose} className="px-6 py-3 rounded-2xl font-bold text-gray-500 hover:bg-gray-100 transition-all text-sm">Cancel</button>
           <button onClick={() => {
-            onSave({ ...form, attachments, employeeName: user.name, role: user.role, employeeId: user.id, days, status: 'Pending', id: Date.now() });
+            onSave({ ...form, attachments: allowsAttachments ? attachments : [], employeeName: user.name, role: user.role, employeeId: user.id, days, status: 'Pending', id: Date.now() });
           }} className="bg-primary hover:bg-primary-dark text-white px-8 py-3 rounded-2xl shadow-lg shadow-primary/20 font-black text-sm transition-all active:scale-95">Submit Request</button>
         </div>
       </div>
@@ -686,7 +690,7 @@ export default function Leaves() {
                     }`}><span className="font-black uppercase tracking-widest text-[9px] mr-1.5 opacity-70">Admin Note:</span>"{l.reviewNotes}"</p>
                   </div>
                 )}
-                {canManageLeaveAttachment(l) && (
+                {canManageLeaveAttachment(l) && !isAnnualLeave(l) && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -806,3 +810,5 @@ export default function Leaves() {
     </div>
   );
 }
+
+
