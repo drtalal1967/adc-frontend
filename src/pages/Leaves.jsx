@@ -129,7 +129,7 @@ function RequestModal({ onClose, onSave, user }) {
   );
 }
 
-function SickLeaveAttachmentModal({ leave, onClose, onUploaded }) {
+function LeaveAttachmentModal({ leave, onClose, onUploaded }) {
   const [files, setFiles] = useState([]);
   const [previewFile, setPreviewFile] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -152,7 +152,7 @@ function SickLeaveAttachmentModal({ leave, onClose, onUploaded }) {
         uploadData.append('leaveRequestId', leave.id);
         uploadData.append('category', 'Leave Request');
         uploadData.append('title', fileObj?.name || uploadFile.name || 'Leave Attachment');
-        uploadData.append('description', `${fd.type} supporting attachment`);
+        uploadData.append('description', `${String(leave?.leaveType || 'Leave').replace(/_/g, ' ')} supporting attachment`);
         uploadData.append('source', 'LEAVE_REQUEST');
         return API.post('/documents/upload', uploadData);
       }));
@@ -180,7 +180,7 @@ function SickLeaveAttachmentModal({ leave, onClose, onUploaded }) {
         </div>
         <div className="p-8 space-y-4">
           <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-sm font-semibold text-gray-600">
-            Upload the certificate for this Sick Leave request. Images from the phone camera and PDF files are supported.
+            Upload a supporting attachment for this leave request. Images from the phone camera and PDF files are supported.
           </div>
           <FileUpload
             value={files}
@@ -483,7 +483,7 @@ export default function Leaves() {
     <div className="space-y-6 animate-fade-in pb-10">
       {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
       {modal && <RequestModal user={user} onClose={() => setModal(false)} onSave={handleApply} />}
-      {attachmentModal && <SickLeaveAttachmentModal leave={attachmentModal} onClose={() => setAttachmentModal(null)} onUploaded={fetchData} />}
+      {attachmentModal && <LeaveAttachmentModal leave={attachmentModal} onClose={() => setAttachmentModal(null)} onUploaded={fetchData} />}
       
       {actionModal && (
         <ActionModal 
