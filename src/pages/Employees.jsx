@@ -251,12 +251,14 @@ function EmployeeModal({ item, onClose, onSave }) {
                 </label>
                 <input type="email" value={form.email} onChange={e => update('email', e.target.value)} placeholder="e.g. sarah@example.com" className="input w-full bg-gray-50/50" />
               </div>
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
-                  <Hash size={13} className="text-indigo-500" /> Password {item ? '(Leave blank to keep current)' : '*'}
-                </label>
-                <input type="password" value={form.password} onChange={e => update('password', e.target.value)} placeholder="••••••••" className="input w-full bg-gray-50/50" />
-              </div>
+              {!item && (
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1.5">
+                    <Hash size={13} className="text-indigo-500" /> Password *
+                  </label>
+                  <input type="password" value={form.password} onChange={e => update('password', e.target.value)} placeholder="Temporary password" className="input w-full bg-gray-50/50" />
+                </div>
+              )}
             </div>
           </div>
 
@@ -766,7 +768,7 @@ export default function Employees() {
         firstName,
         lastName,
         email: form.email,
-        password: form.password || undefined,
+        password: editItem ? undefined : (form.password || undefined),
         role: form.role?.toUpperCase(),
         nationalId: form.idNumber || undefined,
         joiningDate: cleanDate(form.startDate),
@@ -1341,4 +1343,5 @@ export default function Employees() {
     </div>
   );
 }
+
 
