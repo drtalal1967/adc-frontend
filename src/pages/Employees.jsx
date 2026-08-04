@@ -797,7 +797,8 @@ export default function Employees() {
 
   const handleResetPassword = async () => {
     if (!resetItem) return;
-    if (!resetPassword || resetPassword.length < 6) {
+    const cleanResetPassword = resetPassword.trim();
+    if (!cleanResetPassword || cleanResetPassword.length < 6) {
       alert('Password must be at least 6 characters');
       return;
     }
@@ -1340,3 +1341,4 @@ export default function Employees() {
     </div>
   );
 }
+
