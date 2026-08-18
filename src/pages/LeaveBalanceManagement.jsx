@@ -171,7 +171,7 @@ function LeaveMovementReportModal({ rows, summary, onClose }) {
 
   return (
     <div className="modal-overlay z-[120]" onClick={onClose}>
-      <div className="modal-content w-[96vw] max-w-[1500px] bg-white overflow-hidden rounded-[2rem] shadow-2xl animate-scale-in flex flex-col" style={{ maxHeight: 'min(90vh, 840px)' }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content w-[98vw] max-w-[1800px] 2xl:max-w-[92vw] bg-white overflow-hidden rounded-[2rem] shadow-2xl animate-scale-in flex flex-col" style={{ maxHeight: 'min(90vh, 840px)' }} onClick={e => e.stopPropagation()}>
         <div className="bg-gradient-header px-8 py-6 flex items-center justify-between text-white shrink-0">
           <div>
             <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold">Leave Movement Report</p>
@@ -180,59 +180,59 @@ function LeaveMovementReportModal({ rows, summary, onClose }) {
           </div>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-all"><X size={22} /></button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 p-5 bg-gray-50 border-b border-gray-100 shrink-0">
-          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 p-4 bg-gray-50 border-b border-gray-100 shrink-0">
+          <div className="rounded-2xl bg-white border border-gray-100 p-3">
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Closing Balance</p>
             <p className="text-2xl font-black text-blue-700 mt-1">{summary.closingBalance.toFixed(2)}</p>
           </div>
-          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+          <div className="rounded-2xl bg-white border border-gray-100 p-3">
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total Additions</p>
             <p className="text-2xl font-black text-emerald-600 mt-1">{summary.totalAdditions.toFixed(2)}</p>
           </div>
-          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+          <div className="rounded-2xl bg-white border border-gray-100 p-3">
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Subtractions</p>
             <p className="text-2xl font-black text-rose-600 mt-1">{summary.totalDeductions.toFixed(2)}</p>
           </div>
-          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+          <div className="rounded-2xl bg-white border border-gray-100 p-3">
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Net Movement</p>
             <p className="text-2xl font-black text-primary mt-1">{summary.netMovement.toFixed(2)}</p>
           </div>
-          <div className="rounded-2xl bg-white border border-gray-100 p-4">
+          <div className="rounded-2xl bg-white border border-gray-100 p-3">
             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Rows</p>
             <p className="text-2xl font-black text-gray-800 mt-1">{rows.length}</p>
           </div>
         </div>
-        <div className="overflow-auto flex-1">
-          <table className="w-full text-left min-w-[1120px]">
+        <div className="overflow-y-auto overflow-x-hidden flex-1">
+          <table className="w-full table-fixed text-left">
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                <th className="px-5 py-3">Date</th>
-                <th className="px-5 py-3">Employee</th>
-                <th className="px-5 py-3">Leave Type</th>
-                <th className="px-5 py-3">Movement</th>
-                <th className="px-5 py-3 text-right">Added</th>
-                <th className="px-5 py-3 text-right">Subtracted</th>
-                <th className="px-5 py-3 text-right">Balance</th>
-                <th className="px-5 py-3">Notes</th>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Employee</th>
+                <th className="px-4 py-3">Leave Type</th>
+                <th className="px-4 py-3">Movement</th>
+                <th className="px-4 py-3 text-right">Added</th>
+                <th className="px-4 py-3 text-right">Subtracted</th>
+                <th className="px-4 py-3 text-right">Balance</th>
+                <th className="px-4 py-3">Notes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {rows.length === 0 ? (
-                <tr><td colSpan="8" className="px-5 py-10 text-center text-sm font-bold text-gray-400">No leave movements found for this selection.</td></tr>
+                <tr><td colSpan="8" className="px-4 py-10 text-center text-sm font-bold text-gray-400">No leave movements found for this selection.</td></tr>
               ) : rows.map((row, index) => (
                 <tr key={`${row.employeeId}-${row.leaveType}-${row.date}-${index}`} className="text-sm">
-                  <td className="px-5 py-3 font-bold text-gray-700">{formatReportDate(row.date)}</td>
-                  <td className="px-5 py-3 font-bold text-gray-800">{row.employeeName}</td>
-                  <td className="px-5 py-3 text-gray-600">{row.leaveLabel}</td>
-                  <td className="px-5 py-3">
+                  <td className="px-4 py-3 font-bold text-gray-700">{formatReportDate(row.date)}</td>
+                  <td className="px-4 py-3 font-bold text-gray-800">{row.employeeName}</td>
+                  <td className="px-4 py-3 text-gray-600">{row.leaveLabel}</td>
+                  <td className="px-4 py-3">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${row.kind === 'addition' ? 'bg-emerald-50 text-emerald-600' : row.kind === 'deduction' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
                       {row.movement}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right font-black text-emerald-600">{row.added ? row.added.toFixed(2) : ''}</td>
-                  <td className="px-5 py-3 text-right font-black text-rose-600">{row.subtracted ? row.subtracted.toFixed(2) : ''}</td>
-                  <td className="px-5 py-3 text-right font-black text-gray-900">{Number(row.balanceAfter || 0).toFixed(2)}</td>
-                  <td className="px-5 py-3 text-xs font-semibold text-gray-500">{row.notes}</td>
+                  <td className="px-4 py-3 text-right font-black text-emerald-600">{row.added ? row.added.toFixed(2) : ''}</td>
+                  <td className="px-4 py-3 text-right font-black text-rose-600">{row.subtracted ? row.subtracted.toFixed(2) : ''}</td>
+                  <td className="px-4 py-3 text-right font-black text-gray-900">{Number(row.balanceAfter || 0).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-xs font-semibold text-gray-500">{row.notes}</td>
                 </tr>
               ))}
             </tbody>
