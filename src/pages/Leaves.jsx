@@ -478,7 +478,6 @@ export default function Leaves() {
   const isOwnLeaveRequest = (leave) => Number(leave?.employeeId) === Number(activeEmpId);
   const canManageLeaveAttachment = (leave) => isAdmin || isOwnLeaveRequest(leave);
   const canDeleteLeave = (leave) => canDelete || (
-    isPersonalView &&
     leave?.status === 'PENDING' &&
     Number(leave?.employeeId) === Number(activeEmpId)
   );
