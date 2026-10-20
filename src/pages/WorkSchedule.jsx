@@ -71,6 +71,7 @@ const PDF_HOLIDAY_COLOR = { fill: [31, 41, 55], border: [17, 24, 39], text: [255
 const toLocalDateKey = (value) => {
   if (!value) return '';
   const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   const d = new Date(raw);
   if (isNaN(d.getTime())) return raw.slice(0, 10);
   return `${String(d.getFullYear()).padStart(4, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -111,7 +112,7 @@ function ShiftChip({ shift, compact = false, employees }) {
       </div>
       {!compact && (
         <p className={'text-[9px] font-medium opacity-70 ' + c.text}>
-          {isHoliday ? 'Public Holiday' : (shift.status === 'On Leave' ? (shift.leaveType || 'Leave').replace(/_/g, ' ') + ' Leave' : shift.startTime + ' - ' + shift.endTime)}
+          {isHoliday ? 'Public Holiday' : (shift.status === 'On Leave' ? 'On Leave' : shift.startTime + ' - ' + shift.endTime)}
         </p>
       )}
     </div>
@@ -162,7 +163,7 @@ const sortScheduleEntries = (items = [], employees = []) => (
 );
 
 export default function WorkSchedule() {
-  const { user, checkPermission } = useAuth();
+  const { user, checkPermission, loading: authLoading } = useAuth();
   const [view, setView] = useState('Week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [search, setSearch] = useState('');
@@ -196,8 +197,11 @@ export default function WorkSchedule() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     const fetchSchedules = async () => {
       setLoading(true);
+      setLeaveRequests([]);
+      if (authLoading || !user) return;
       let start, end;
 
       if (view === 'Month') {
@@ -223,10 +227,11 @@ export default function WorkSchedule() {
 
       try {
         const [scheduleResult, leaveResult, holidayResult] = await Promise.allSettled([
-          API.get(`/schedules?start=${start}&end=${end}`),
-          API.get('/leave-requests'),
-          API.get('/public-holidays?start=' + start + '&end=' + end),
+          API.get(`/schedules?start=${start}&end=${end}`, { signal: controller.signal }),
+          API.get(`/schedules/absences?start=${start}&end=${end}`, { signal: controller.signal }),
+          API.get('/public-holidays?start=' + start + '&end=' + end, { signal: controller.signal }),
         ]);
+        if (controller.signal.aborted) return;
 
         if (scheduleResult.status === 'fulfilled') {
           setDbSchedules(scheduleResult.value.data || []);
@@ -251,12 +256,13 @@ export default function WorkSchedule() {
       } catch (err) {
         console.error('Error fetching work schedule data:', err);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchSchedules();
-  }, [view, currentDate, user]);
+    return () => controller.abort();
+  }, [view, currentDate, user, authLoading]);
 
   const schedules = useMemo(() => {
     const toDateString = (date) => {
@@ -284,7 +290,7 @@ export default function WorkSchedule() {
       rangeStart = rangeEnd = toDateString(currentDate);
     }
 
-    const activeLeaves = leaveRequests.filter(l => {
+    const activeLeaves = (authLoading || !user ? [] : leaveRequests).filter(l => {
       if (String(l.status || '').toUpperCase() !== 'APPROVED') return false;
       const start = toLocalDateKey(l.startDate);
       const end = toLocalDateKey(l.endDate);
@@ -310,7 +316,6 @@ export default function WorkSchedule() {
         end: new Date(`${s.date}T${s.endTime || '00:00'}`),
         branch: s.branch || 'Tubli Branch',
         status: onLeave ? 'On Leave' : 'Active',
-        leaveType: leave?.leaveType,
         employeeName: s.employeeName,
         employee: s.employee
       };
@@ -339,7 +344,6 @@ export default function WorkSchedule() {
             end: new Date(dateStr + 'T23:59:59'),
             branch: l.employee?.branch || 'All Branches',
             status: 'On Leave',
-            leaveType: l.leaveType,
             employeeName: l.employee ? `${l.employee.firstName} ${l.employee.lastName}` : 'Employee on leave',
             employee: l.employee,
             isLeaveOnly: true
@@ -379,7 +383,7 @@ export default function WorkSchedule() {
     });
 
     return [...holidayEntries, ...mappedSchedules, ...leaveOnlyEntries];
-  }, [dbSchedules, leaveRequests, publicHolidays, currentDate, view]);
+  }, [dbSchedules, leaveRequests, publicHolidays, currentDate, view, user, authLoading]);
 
   const visibleEmployees = useMemo(() => {
     const byId = new Map();
@@ -610,7 +614,7 @@ export default function WorkSchedule() {
     const detail = shift.status === 'Public Holiday'
       ? 'Public Holiday'
       : (shift.status === 'On Leave'
-        ? `${(shift.leaveType || 'Leave').replace(/_/g, ' ')} Leave`
+        ? 'On Leave'
         : `${shift.startTime || ''} - ${shift.endTime || ''}`);
     doc.setFillColor(...c.fill);
     doc.setDrawColor(...c.border);
@@ -1075,7 +1079,7 @@ export default function WorkSchedule() {
                           {isLeave && <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0 shadow-sm" />}
                         </div>
                         <p className={`text-[9px] font-medium opacity-60 ${c.text}`}>
-                          {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`)}
+                          {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? 'On Leave' : `${s.startTime} - ${s.endTime}`)}
                         </p>
                         <p className={`text-[9px] font-medium opacity-50 ${c.text} truncate`}>{s.branch}</p>
                       </div>
@@ -1138,7 +1142,7 @@ export default function WorkSchedule() {
                     <div className="flex flex-col items-end gap-1">
                       <div className={`flex items-center gap-1.5 text-xs font-bold ${c.text}`}>
                         {!['On Leave', 'Public Holiday'].includes(s.status) && <Clock size={12} />}
-                        {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`)}
+                        {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? 'On Leave' : `${s.startTime} - ${s.endTime}`)}
                       </div>
                       <div className={`flex items-center gap-1.5 text-[10px] font-medium opacity-60 ${c.text}`}>
                         <MapPin size={10} />{s.branch}
@@ -1195,7 +1199,7 @@ export default function WorkSchedule() {
                   </div>
                   <div className={`flex items-center gap-1.5 text-xs font-bold ${c.text}`}>
                     {!['On Leave', 'Public Holiday'].includes(s.status) && <Clock size={12} />}
-                    {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? `${(s.leaveType || 'Leave').replace(/_/g, ' ')} Leave` : `${s.startTime} - ${s.endTime}`)}
+                    {isHoliday ? 'Public Holiday' : (s.status === 'On Leave' ? 'On Leave' : `${s.startTime} - ${s.endTime}`)}
                   </div>
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
                     s.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : (s.status === 'Public Holiday' ? 'bg-gray-800 text-white' : 'bg-rose-100 text-rose-600')
